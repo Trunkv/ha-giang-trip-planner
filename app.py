@@ -1,667 +1,754 @@
 
 import streamlit as st
-import pandas as pd
 import folium
+import pandas as pd
 import requests
 import json
-import copy
-import uuid
-import base64
 import math
-import io
+import base64
+import html
+import uuid
+import os
+
 from pathlib import Path
 from streamlit_folium import st_folium
 
-# ============================================================
-# PHẦN A. DANH SÁCH ĐỊA ĐIỂM
-# Bạn có thể thêm / sửa / xóa địa điểm tại đây
-# ============================================================
-
-PLACES = [
-    {
-        "id": "HG001",
-        "name": "Lô Lô Chải",
-        "category": "Làng bản",
-        "lat": 23.3575,
-        "lon": 105.3040,
-        "description": "Làng văn hóa người Lô Lô dưới chân cột cờ Lũng Cú.",
-        "image": ""
-    },
-    {
-        "id": "HG002",
-        "name": "Cột cờ Lũng Cú",
-        "category": "Check-in",
-        "lat": 23.3619,
-        "lon": 105.3150,
-        "description": "Điểm tham quan nổi tiếng tại cực Bắc Việt Nam.",
-        "image": ""
-    },
-    {
-        "id": "HG003",
-        "name": "Phố cổ Đồng Văn",
-        "category": "Tham quan",
-        "lat": 23.2770,
-        "lon": 105.3600,
-        "description": "Khu phố cổ với kiến trúc và không gian văn hóa vùng cao.",
-        "image": ""
-    },
-    {
-        "id": "HG004",
-        "name": "Đèo Mã Pí Lèng",
-        "category": "Check-in",
-        "lat": 23.2060,
-        "lon": 105.4050,
-        "description": "Cung đèo nổi tiếng trên cao nguyên đá.",
-        "image": ""
-    },
-    {
-        "id": "HG005",
-        "name": "Sông Nho Quế",
-        "category": "Trải nghiệm",
-        "lat": 23.1900,
-        "lon": 105.4100,
-        "description": "Trải nghiệm đi thuyền trên sông Nho Quế.",
-        "image": ""
-    },
-    {
-        "id": "HG006",
-        "name": "Hẻm Tu Sản",
-        "category": "Check-in",
-        "lat": 23.1850,
-        "lon": 105.4050,
-        "description": "Hẻm vực nổi tiếng trên dòng Nho Quế.",
-        "image": ""
-    },
-    {
-        "id": "HG007",
-        "name": "Nhà của Pao",
-        "category": "Văn hóa",
-        "lat": 23.2560,
-        "lon": 105.2880,
-        "description": "Ngôi nhà truyền thống tại thung lũng Sủng Là.",
-        "image": ""
-    },
-    {
-        "id": "HG008",
-        "name": "Dinh thự họ Vương",
-        "category": "Văn hóa",
-        "lat": 23.2570,
-        "lon": 105.2820,
-        "description": "Công trình kiến trúc lịch sử nổi tiếng.",
-        "image": ""
-    },
-    {
-        "id": "HG009",
-        "name": "Rừng thông Yên Minh",
-        "category": "Thiên nhiên",
-        "lat": 23.1000,
-        "lon": 105.1500,
-        "description": "Khu vực rừng thông và cảnh quan núi rừng.",
-        "image": ""
-    },
-    {
-        "id": "HG010",
-        "name": "Núi Đôi Quản Bạ",
-        "category": "Thiên nhiên",
-        "lat": 23.0670,
-        "lon": 104.9910,
-        "description": "Điểm ngắm cảnh nổi tiếng tại Quản Bạ.",
-        "image": ""
-    },
-    {
-        "id": "HG011",
-        "name": "Cổng trời Quản Bạ",
-        "category": "Check-in",
-        "lat": 23.0640,
-        "lon": 104.9800,
-        "description": "Điểm ngắm toàn cảnh thung lũng Tam Sơn.",
-        "image": ""
-    },
-    {
-        "id": "HG012",
-        "name": "Hoàng Su Phì",
-        "category": "Thiên nhiên",
-        "lat": 22.7500,
-        "lon": 104.6800,
-        "description": "Khu vực ruộng bậc thang nổi tiếng.",
-        "image": ""
-    },
-    {
-        "id": "HG013",
-        "name": "Chiêu Lầu Thi",
-        "category": "Leo núi",
-        "lat": 22.7200,
-        "lon": 104.7200,
-        "description": "Điểm trekking và săn mây.",
-        "image": ""
-    },
-    {
-        "id": "HG014",
-        "name": "Thác Tiên",
-        "category": "Thác nước",
-        "lat": 22.6500,
-        "lon": 104.7000,
-        "description": "Điểm tham quan thiên nhiên tại Hoàng Su Phì.",
-        "image": ""
-    },
-    {
-        "id": "HG015",
-        "name": "Thành phố Hà Giang",
-        "category": "Đô thị",
-        "lat": 22.8230,
-        "lon": 104.9830,
-        "description": "Điểm xuất phát phổ biến của hành trình.",
-        "image": ""
-    },
-    {
-        "id": "HG016",
-        "name": "Làng H'Mông Pả Vi",
-        "category": "Làng bản",
-        "lat": 23.2130,
-        "lon": 105.4160,
-        "description": "Làng văn hóa người Mông, nổi bật với nhà trình tường và homestay.",
-        "image": ""
-    },
-    {
-        "id": "HG017",
-        "name": "Mèo Vạc",
-        "category": "Đô thị",
-        "lat": 23.2180,
-        "lon": 105.4130,
-        "description": "Trung tâm khu vực Mèo Vạc.",
-        "image": ""
-    },
-    {
-        "id": "HG018",
-        "name": "Mèo Vạc Panorama Cafe",
-        "category": "Ăn uống",
-        "lat": 23.2150,
-        "lon": 105.4070,
-        "description": "Điểm cà phê ngắm cảnh khu vực Mèo Vạc. Cần xác minh tọa độ.",
-        "image": ""
-    },
-    {
-        "id": "HG019",
-        "name": "Yên Minh",
-        "category": "Đô thị",
-        "lat": 23.1320,
-        "lon": 105.1500,
-        "description": "Thị trấn Yên Minh, điểm nghỉ chân trên cung đường.",
-        "image": ""
-    },
-    {
-        "id": "HG020",
-        "name": "Du Già",
-        "category": "Làng bản",
-        "lat": 22.7300,
-        "lon": 105.2000,
-        "description": "Khu vực Du Già với cảnh quan núi rừng và homestay.",
-        "image": ""
-    },
-    {
-        "id": "HG021",
-        "name": "Thác Du Già",
-        "category": "Thác nước",
-        "lat": 22.7250,
-        "lon": 105.2050,
-        "description": "Thác nước tại khu vực Du Già.",
-        "image": ""
-    },
-    {
-        "id": "HG022",
-        "name": "Mậu Duệ",
-        "category": "Đô thị",
-        "lat": 22.9800,
-        "lon": 105.2000,
-        "description": "Khu vực trên cung đường nối Mèo Vạc, Yên Minh và Du Già.",
-        "image": ""
-    },
-    {
-        "id": "HG023",
-        "name": "Thuận Hòa",
-        "category": "Cung đường",
-        "lat": 22.8500,
-        "lon": 104.9500,
-        "description": "Điểm thuộc khu vực tuyến đường Thuận Hòa - Thái An.",
-        "image": ""
-    },
-    {
-        "id": "HG024",
-        "name": "Thái An",
-        "category": "Cung đường",
-        "lat": 23.0200,
-        "lon": 105.0000,
-        "description": "Điểm thuộc khu vực tuyến đường Thuận Hòa - Thái An.",
-        "image": ""
-    }
-]
 
 # ============================================================
-# PHẦN B. CẤU HÌNH
+# A. CAU HINH UNG DUNG
 # ============================================================
 
 st.set_page_config(
     page_title="Ha Giang Trip Planner",
     page_icon="🏔️",
-    layout="wide"
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
 
-DATA_FILE = Path("ha_giang_data.json")
+DATA_FILE = "ha_giang_data.json"
 
 DAY_COLORS = [
-    "#E53935", "#1976D2", "#2E7D32",
-    "#8E24AA", "#EF6C00", "#00838F",
-    "#AD1457", "#5D4037", "#455A64"
+    "#E53935",
+    "#1565C0",
+    "#2E7D32",
+    "#8E24AA",
+    "#EF6C00",
+    "#00838F",
+    "#6D4C41",
+    "#3949AB"
 ]
 
 CATEGORY_ICONS = {
-    "Check-in": ("camera", "red"),
-    "Ăn uống": ("utensils", "orange"),
-    "Lưu trú": ("bed", "blue"),
-    "Làng bản": ("house", "green"),
-    "Tham quan": ("landmark", "purple"),
-    "Trải nghiệm": ("person-hiking", "cadetblue"),
-    "Thác nước": ("water", "blue"),
-    "Thiên nhiên": ("tree", "green"),
-    "Văn hóa": ("building-columns", "darkpurple"),
-    "Leo núi": ("mountain", "darkgreen"),
-    "Đô thị": ("city", "gray"),
-    "Cung đường": ("road", "darkred"),
-    "Khác": ("map-pin", "gray")
+    "Check-in": "📸",
+    "Ăn uống": "🍜",
+    "Lưu trú": "🛏️",
+    "Ngủ nghỉ": "🛏️",
+    "Khách sạn": "🏨",
+    "Homestay": "🏡",
+    "Làng bản": "🏘️",
+    "Tham quan": "🏛️",
+    "Trải nghiệm": "🚣",
+    "Thác nước": "💦",
+    "Thiên nhiên": "🌲",
+    "Văn hóa": "🏯",
+    "Leo núi": "🥾",
+    "Đô thị": "🏙️",
+    "Cung đường": "🛣️",
+    "Cà phê": "☕",
+    "Khác": "📍"
 }
 
-def uid():
-    return str(uuid.uuid4())[:8]
+CATEGORIES = list(CATEGORY_ICONS.keys())
 
-def default_data():
-    return {
-        "places": copy.deepcopy(PLACES),
-        "plans": [{
-            "id": uid(),
-            "name": "Phương án 1",
-            "days": [
-                {"name": "Ngày 1", "stops": []},
-                {"name": "Ngày 2", "stops": []},
-                {"name": "Ngày 3", "stops": []}
-            ]
-        }],
-        "active_plan": 0
-    }
-
-def load_data():
-    if DATA_FILE.exists():
-        try:
-            obj = json.loads(DATA_FILE.read_text(encoding="utf-8"))
-            if isinstance(obj, dict) and isinstance(obj.get("places"), list) and isinstance(obj.get("plans"), list):
-                # Bổ sung các địa điểm mới trong code nếu chưa có trong file JSON
-                existing_ids = {p.get("id") for p in obj["places"]}
-                for p in PLACES:
-                    if p["id"] not in existing_ids:
-                        obj["places"].append(copy.deepcopy(p))
-                if not obj["plans"]:
-                    obj["plans"] = default_data()["plans"]
-                return obj
-        except Exception:
-            pass
-    return default_data()
-
-if "data" not in st.session_state:
-    st.session_state.data = load_data()
-
-data = st.session_state.data
-
-if not data.get("plans"):
-    data["plans"] = default_data()["plans"]
-
-data["active_plan"] = min(
-    max(0, int(data.get("active_plan", 0))),
-    len(data["plans"]) - 1
-)
-
-plan = data["plans"][data["active_plan"]]
-
-def save_data():
-    DATA_FILE.write_text(
-        json.dumps(data, ensure_ascii=False, indent=2),
-        encoding="utf-8"
-    )
-
-def get_place(place_id):
-    return next(
-        (p for p in data["places"] if p.get("id") == place_id),
-        None
-    )
-
-def category_icon(category):
-    return CATEGORY_ICONS.get(
-        category,
-        CATEGORY_ICONS["Khác"]
-    )
 
 # ============================================================
-# PHẦN C. TÍNH TUYẾN ĐƯỜNG
+# B. DU LIEU DIA DIEM MAU
+# Luu y: toa do tham khao, can kiem tra lai tren Google Maps
+# ============================================================
+
+DEFAULT_PLACES = [
+    {
+        "id": "hg_city",
+        "name": "Thành phố Hà Giang",
+        "category": "Đô thị",
+        "lat": 22.8233,
+        "lon": 104.9836,
+        "description": "Điểm xuất phát và kết thúc hành trình Hà Giang Loop."
+    },
+    {
+        "id": "quan_ba",
+        "name": "Cổng trời Quản Bạ",
+        "category": "Check-in",
+        "lat": 23.0475,
+        "lon": 104.9917,
+        "description": "Điểm ngắm cảnh núi đôi và thung lũng Quản Bạ."
+    },
+    {
+        "id": "lung_khuy",
+        "name": "Hang Lùng Khúy",
+        "category": "Tham quan",
+        "lat": 23.0655,
+        "lon": 104.9825,
+        "description": "Hang động nổi tiếng tại Quản Bạ."
+    },
+    {
+        "id": "yen_minh",
+        "name": "Yên Minh",
+        "category": "Đô thị",
+        "lat": 23.1275,
+        "lon": 105.1510,
+        "description": "Thị trấn Yên Minh."
+    },
+    {
+        "id": "tham_ma",
+        "name": "Dốc Thẩm Mã",
+        "category": "Check-in",
+        "lat": 23.2470,
+        "lon": 105.2240,
+        "description": "Cung đường đèo nổi tiếng trên cao nguyên đá."
+    },
+    {
+        "id": "pho_cao",
+        "name": "Phố Cáo",
+        "category": "Làng bản",
+        "lat": 23.2650,
+        "lon": 105.2500,
+        "description": "Ngôi làng với kiến trúc nhà trình tường."
+    },
+    {
+        "id": "sung_la",
+        "name": "Thung lũng Sủng Là",
+        "category": "Check-in",
+        "lat": 23.2760,
+        "lon": 105.2850,
+        "description": "Thung lũng nổi tiếng với cảnh quan và văn hóa bản địa."
+    },
+    {
+        "id": "lung_cam",
+        "name": "Làng văn hóa Lũng Cẩm",
+        "category": "Làng bản",
+        "lat": 23.2768,
+        "lon": 105.2870,
+        "description": "Làng văn hóa với những ngôi nhà trình tường truyền thống."
+    },
+    {
+        "id": "vuong",
+        "name": "Dinh thự họ Vương",
+        "category": "Tham quan",
+        "lat": 23.2780,
+        "lon": 105.3030,
+        "description": "Di tích kiến trúc lịch sử của cao nguyên đá."
+    },
+    {
+        "id": "lung_cu",
+        "name": "Cột cờ Lũng Cú",
+        "category": "Check-in",
+        "lat": 23.3608,
+        "lon": 105.3150,
+        "description": "Điểm cực Bắc nổi tiếng của Việt Nam."
+    },
+    {
+        "id": "lo_lo",
+        "name": "Làng Lô Lô Chải",
+        "category": "Làng bản",
+        "lat": 23.3580,
+        "lon": 105.3130,
+        "description": "Làng văn hóa người Lô Lô dưới chân cột cờ Lũng Cú."
+    },
+    {
+        "id": "dong_van",
+        "name": "Phố cổ Đồng Văn",
+        "category": "Tham quan",
+        "lat": 23.2770,
+        "lon": 105.3600,
+        "description": "Khu phố cổ với kiến trúc và văn hóa đặc trưng."
+    },
+    {
+        "id": "ma_pi_leng",
+        "name": "Đèo Mã Pì Lèng",
+        "category": "Check-in",
+        "lat": 23.1970,
+        "lon": 105.3900,
+        "description": "Một trong những cung đèo nổi tiếng nhất Hà Giang."
+    },
+    {
+        "id": "nho_que",
+        "name": "Sông Nho Quế",
+        "category": "Trải nghiệm",
+        "lat": 23.1850,
+        "lon": 105.4000,
+        "description": "Trải nghiệm ngắm cảnh hoặc đi thuyền trên sông Nho Quế."
+    },
+    {
+        "id": "meo_vac",
+        "name": "Thị trấn Mèo Vạc",
+        "category": "Đô thị",
+        "lat": 23.1580,
+        "lon": 105.4050,
+        "description": "Trung tâm khu vực Mèo Vạc."
+    },
+    {
+        "id": "pa_vi",
+        "name": "Làng H'Mông Pả Vi",
+        "category": "Làng bản",
+        "lat": 23.1750,
+        "lon": 105.3900,
+        "description": "Làng văn hóa du lịch cộng đồng người H'Mông."
+    },
+    {
+        "id": "panorama",
+        "name": "Mèo Vạc Panorama Cafe",
+        "category": "Cà phê",
+        "lat": 23.1900,
+        "lon": 105.3950,
+        "description": "Điểm dừng chân ngắm cảnh khu vực Mã Pì Lèng."
+    },
+    {
+        "id": "mau_due",
+        "name": "Mậu Duệ",
+        "category": "Đô thị",
+        "lat": 23.0850,
+        "lon": 105.3000,
+        "description": "Khu vực trên cung đường nối Mèo Vạc và Du Già."
+    },
+    {
+        "id": "du_gia",
+        "name": "Du Già",
+        "category": "Làng bản",
+        "lat": 22.9700,
+        "lon": 105.2100,
+        "description": "Khu vực du lịch cộng đồng nổi tiếng."
+    },
+    {
+        "id": "thac_du_gia",
+        "name": "Thác Du Già",
+        "category": "Thác nước",
+        "lat": 22.9700,
+        "lon": 105.2050,
+        "description": "Thác nước và điểm tắm suối tại Du Già."
+    },
+    {
+        "id": "thuan_hoa",
+        "name": "Thuận Hòa – Thái An",
+        "category": "Cung đường",
+        "lat": 22.9000,
+        "lon": 105.0500,
+        "description": "Khu vực cung đường cảnh quan Thuận Hòa – Thái An."
+    }
+]
+
+
+# ============================================================
+# C. CAC HAM XU LY DU LIEU
+# ============================================================
+
+def new_id():
+    return uuid.uuid4().hex[:10]
+
+
+def default_plan():
+    return {
+        "id": "plan_default",
+        "name": "Lịch trình Hà Giang 3N2Đ",
+        "days": [
+            {
+                "name": "Ngày 1",
+                "stops": [
+                    "hg_city",
+                    "quan_ba",
+                    "yen_minh",
+                    "tham_ma",
+                    "sung_la",
+                    "dong_van"
+                ]
+            },
+            {
+                "name": "Ngày 2",
+                "stops": [
+                    "dong_van",
+                    "lung_cu",
+                    "lo_lo",
+                    "ma_pi_leng",
+                    "nho_que",
+                    "meo_vac",
+                    "pa_vi"
+                ]
+            },
+            {
+                "name": "Ngày 3",
+                "stops": [
+                    "meo_vac",
+                    "mau_due",
+                    "du_gia",
+                    "thac_du_gia",
+                    "hg_city"
+                ]
+            }
+        ]
+    }
+
+
+def initial_data():
+    plan = default_plan()
+    return {
+        "places": DEFAULT_PLACES,
+        "plans": [plan],
+        "selected_plan_id": plan["id"]
+    }
+
+
+def load_data():
+    if os.path.exists(DATA_FILE):
+        try:
+            with open(DATA_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+
+            if "places" not in data:
+                data["places"] = DEFAULT_PLACES
+
+            if "plans" not in data or not data["plans"]:
+                data["plans"] = [default_plan()]
+
+            if "selected_plan_id" not in data:
+                data["selected_plan_id"] = data["plans"][0]["id"]
+
+            return data
+        except Exception:
+            pass
+
+    return initial_data()
+
+
+def save_data(data):
+    with open(DATA_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+
+def get_place(place_id):
+    for p in st.session_state.data["places"]:
+        if p["id"] == place_id:
+            return p
+    return None
+
+
+def get_current_plan():
+    plans = st.session_state.data["plans"]
+    selected_id = st.session_state.data["selected_plan_id"]
+
+    for p in plans:
+        if p["id"] == selected_id:
+            return p
+
+    st.session_state.data["selected_plan_id"] = plans[0]["id"]
+    return plans[0]
+
+
+def get_icon(category):
+    return CATEGORY_ICONS.get(category, "📍")
+
+
+def haversine_km(lat1, lon1, lat2, lon2):
+    radius = 6371
+
+    lat1 = math.radians(lat1)
+    lat2 = math.radians(lat2)
+
+    dlat = math.radians(lat2 - lat1)
+    dlon = math.radians(lon2 - lon1)
+
+    a = (
+        math.sin(dlat / 2) ** 2
+        + math.cos(lat1) * math.cos(lat2)
+        * math.sin(dlon / 2) ** 2
+    )
+
+    return 2 * radius * math.asin(math.sqrt(a))
+
+
+# ============================================================
+# D. TINH TUYEN DUONG OSRM
 # ============================================================
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def get_osrm_route(lon1, lat1, lon2, lat2):
-    try:
-        url = (
-            "https://router.project-osrm.org/route/v1/driving/"
-            f"{lon1},{lat1};{lon2},{lat2}"
-            "?overview=full&geometries=geojson"
-        )
-        r = requests.get(url, timeout=15)
-        r.raise_for_status()
-        result = r.json()
+def get_osrm_route(lat1, lon1, lat2, lon2):
+    url = (
+        "https://router.project-osrm.org/route/v1/driving/"
+        f"{lon1},{lat1};{lon2},{lat2}"
+        "?overview=full&geometries=geojson"
+    )
 
-        if result.get("routes"):
-            route = result["routes"][0]
-            coords = route["geometry"]["coordinates"]
-            return {
-                "distance": route["distance"] / 1000,
-                "duration": route["duration"] / 60,
-                "coordinates": [[lat, lon] for lon, lat in coords]
-            }
+    try:
+        response = requests.get(url, timeout=15)
+        response.raise_for_status()
+        result = response.json()
+
+        if result.get("code") != "Ok":
+            return None
+
+        route = result["routes"][0]
+
+        coordinates = [
+            [point[1], point[0]]
+            for point in route["geometry"]["coordinates"]
+        ]
+
+        return {
+            "distance_km": route["distance"] / 1000,
+            "duration_min": route["duration"] / 60,
+            "coordinates": coordinates,
+            "estimated": False
+        }
+
     except Exception:
         return None
 
-    return None
 
-def haversine_km(a, b):
-    radius = 6371
-    lat1, lon1 = math.radians(a["lat"]), math.radians(a["lon"])
-    lat2, lon2 = math.radians(b["lat"]), math.radians(b["lon"])
-    dlat = lat2 - lat1
-    dlon = lon2 - lon1
+def calculate_day_routes(day, places):
+    stops = []
 
-    h = (
-        math.sin(dlat / 2) ** 2
-        + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) ** 2
-    )
-    return 2 * radius * math.asin(math.sqrt(h))
+    for place_id in day["stops"]:
+        place = next(
+            (p for p in places if p["id"] == place_id),
+            None
+        )
+        if place:
+            stops.append(place)
 
-def calculate_day(day):
-    places = [
-        get_place(s["place_id"])
-        for s in day["stops"]
-    ]
-    places = [p for p in places if p]
-
-    total_km = 0
-    total_minutes = 0
+    total_distance = 0
+    total_duration = 0
     route_segments = []
-    route_complete = True
+    all_estimated = False
 
-    for i in range(len(places) - 1):
-        a, b = places[i], places[i + 1]
+    for i in range(len(stops) - 1):
+        a = stops[i]
+        b = stops[i + 1]
+
         route = get_osrm_route(
-            a["lon"], a["lat"], b["lon"], b["lat"]
+            a["lat"], a["lon"],
+            b["lat"], b["lon"]
         )
 
         if route:
-            total_km += route["distance"]
-            total_minutes += route["duration"]
-            route_segments.append({
-                "from": a["name"],
-                "to": b["name"],
-                "route": route,
-                "estimated": False
-            })
+            distance = route["distance_km"]
+            duration = route["duration_min"]
+            coordinates = route["coordinates"]
+            estimated = False
         else:
-            route_complete = False
-            estimate = haversine_km(a, b)
-            route_segments.append({
-                "from": a["name"],
-                "to": b["name"],
-                "route": {
-                    "distance": estimate,
-                    "duration": 0,
-                    "coordinates": [
-                        [a["lat"], a["lon"]],
-                        [b["lat"], b["lon"]]
-                    ]
-                },
-                "estimated": True
-            })
+            distance = haversine_km(
+                a["lat"], a["lon"],
+                b["lat"], b["lon"]
+            ) * 1.35
+
+            duration = distance / 30 * 60
+            coordinates = [
+                [a["lat"], a["lon"]],
+                [b["lat"], b["lon"]]
+            ]
+            estimated = True
+            all_estimated = True
+
+        total_distance += distance
+        total_duration += duration
+
+        route_segments.append({
+            "coordinates": coordinates,
+            "distance_km": distance,
+            "duration_min": duration,
+            "estimated": estimated
+        })
 
     return {
-        "places": places,
-        "distance": total_km,
-        "driving_minutes": total_minutes,
+        "stops": stops,
+        "distance_km": total_distance,
+        "duration_min": total_duration,
         "segments": route_segments,
-        "route_complete": route_complete
+        "estimated": all_estimated
     }
 
+
 # ============================================================
-# PHẦN D. BẢN ĐỒ
+# E. TAO BAN DO
 # ============================================================
 
-def create_map(plan, map_mode="Đường phố", show_all_places=False):
-    all_plan_places = []
-
-    for day in plan["days"]:
-        for stop in day["stops"]:
-            p = get_place(stop["place_id"])
-            if p:
-                all_plan_places.append(p)
-
-    if all_plan_places:
-        center = [
-            sum(p["lat"] for p in all_plan_places) / len(all_plan_places),
-            sum(p["lon"] for p in all_plan_places) / len(all_plan_places)
-        ]
-    else:
-        center = [23.0, 105.2]
-
+def create_map(plan, places, tile_choice="CartoDB Positron"):
     m = folium.Map(
-        location=center,
+        location=[23.15, 105.25],
         zoom_start=9,
-        control_scale=True,
-        tiles=None
+        tiles=None,
+        control_scale=True
     )
 
-    # Lớp bản đồ đường phố
-    folium.TileLayer(
-        tiles="OpenStreetMap",
-        name="Bản đồ đường phố",
-        control=True,
-        show=(map_mode == "Đường phố")
-    ).add_to(m)
-
-    # Lớp bản đồ đường phố kiểu sáng
-    folium.TileLayer(
-        tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}",
-        attr="Esri",
-        name="Bản đồ Esri",
-        control=True,
-        show=False
-    ).add_to(m)
-
-    # Lớp ảnh vệ tinh
-    folium.TileLayer(
-        tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-        attr="Esri World Imagery",
-        name="Ảnh vệ tinh",
-        control=True,
-        show=(map_mode == "Vệ tinh")
-    ).add_to(m)
-
-    # Marker các điểm trong lịch trình
-    for day_index, day in enumerate(plan["days"]):
-        color = DAY_COLORS[day_index % len(DAY_COLORS)]
-
-        for stop_index, stop in enumerate(day["stops"]):
-            p = get_place(stop["place_id"])
-            if not p:
-                continue
-
-            icon_name, icon_color = category_icon(p["category"])
-
-            popup = f"""
-            <div style="width:230px">
-                <b>{p['name']}</b><br>
-                <span>{p['category']}</span><br>
-                <span>{day['name']} - {stop_index + 1}</span><br>
-                <span>Giờ đến: {stop.get('arrival','')}</span><br>
-                <p>{p.get('description','')}</p>
-            </div>
-            """
-
-            folium.Marker(
-                [p["lat"], p["lon"]],
-                tooltip=f"{day['name']} - {p['name']}",
-                popup=folium.Popup(popup, max_width=280),
-                icon=folium.Icon(
-                    color=icon_color,
-                    icon=icon_name,
-                    prefix="fa"
-                )
-            ).add_to(m)
-
-    # Marker địa điểm ngoài lịch trình nếu được bật
-    if show_all_places:
-        planned_ids = {
-            s["place_id"]
-            for d in plan["days"]
-            for s in d["stops"]
+    tile_options = {
+        "CartoDB Positron": {
+            "tiles": "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",
+            "attr": "© OpenStreetMap © CARTO",
+            "max_zoom": 20
+        },
+        "Esri Street": {
+            "tiles": "https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}",
+            "attr": "Tiles © Esri",
+            "max_zoom": 19
+        },
+        "Esri Satellite": {
+            "tiles": "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+            "attr": "Tiles © Esri",
+            "max_zoom": 19
+        },
+        "OpenStreetMap": {
+            "tiles": "OpenStreetMap",
+            "attr": "© OpenStreetMap contributors",
+            "max_zoom": 19
         }
+    }
 
-        for p in data["places"]:
-            if p["id"] in planned_ids:
-                continue
+    selected_tile = tile_options.get(
+        tile_choice,
+        tile_options["CartoDB Positron"]
+    )
 
-            icon_name, icon_color = category_icon(p["category"])
+    folium.TileLayer(
+        tiles=selected_tile["tiles"],
+        attr=selected_tile["attr"],
+        name=tile_choice,
+        max_zoom=selected_tile["max_zoom"],
+        show=True
+    ).add_to(m)
 
-            folium.Marker(
-                [p["lat"], p["lon"]],
-                tooltip=p["name"],
-                popup=folium.Popup(
-                    f"<b>{p['name']}</b><br>{p['category']}<br>{p.get('description','')}",
-                    max_width=250
-                ),
-                icon=folium.Icon(
-                    color=icon_color,
-                    icon=icon_name,
-                    prefix="fa"
-                )
-            ).add_to(m)
+    all_coords = []
+    places_by_id = {p["id"]: p for p in places}
 
-    # Tuyến đường từng ngày, màu riêng
+    # Ve tuyen duong theo tung ngay
     for day_index, day in enumerate(plan["days"]):
-        result = calculate_day(day)
         color = DAY_COLORS[day_index % len(DAY_COLORS)]
 
-        for segment in result["segments"]:
-            route = segment["route"]
+        route_data = calculate_day_routes(day, places)
 
+        for segment in route_data["segments"]:
             folium.PolyLine(
-                route["coordinates"],
+                locations=segment["coordinates"],
                 color=color,
                 weight=5,
                 opacity=0.85,
-                dash_array="8, 5" if segment["estimated"] else None,
+                dash_array="8, 8" if segment["estimated"] else None,
                 tooltip=(
-                    f"{day['name']}: {segment['from']} → {segment['to']} "
-                    f"({route['distance']:.1f} km)"
-                    + (" - Ước tính đường thẳng" if segment["estimated"] else "")
+                    f"{day['name']} | "
+                    f"{segment['distance_km']:.1f} km"
+                    + (" | Ước tính" if segment["estimated"] else "")
                 )
             ).add_to(m)
 
-    # Chú giải màu các ngày
-    legend_items = ""
+        # Marker theo thu tu trong ngay
+        for stop_index, place in enumerate(route_data["stops"]):
+            lat = place["lat"]
+            lon = place["lon"]
+            all_coords.append([lat, lon])
+
+            icon_emoji = get_icon(place.get("category", "Khác"))
+
+            popup_html = f"""
+            <div style="width:230px;font-family:Arial">
+                <h4 style="margin:0 0 7px 0">
+                    {html.escape(place['name'])}
+                </h4>
+                <div>{html.escape(place.get('category', ''))}</div>
+                <p style="margin-top:7px">
+                    {html.escape(place.get('description', ''))}
+                </p>
+                <div style="color:{color};font-weight:bold">
+                    {html.escape(day['name'])} - Điểm {stop_index + 1}
+                </div>
+            """
+
+            if place.get("image"):
+                popup_html += (
+                    '<img src="data:image/jpeg;base64,'
+                    + place["image"]
+                    + '" style="width:100%;margin-top:8px;border-radius:6px">'
+                )
+
+            if place.get("note"):
+                popup_html += (
+                    '<p style="margin-top:8px">'
+                    + html.escape(place["note"])
+                    + '</p>'
+                )
+
+            popup_html += "</div>"
+
+            marker_html = f"""
+            <div style="
+                font-size:25px;
+                text-align:center;
+                width:34px;
+                height:34px;
+                line-height:34px;
+                background:white;
+                border:3px solid {color};
+                border-radius:50%;
+                box-shadow:0 1px 5px rgba(0,0,0,0.35);
+            ">{icon_emoji}</div>
+            """
+
+            marker = folium.Marker(
+                location=[lat, lon],
+                tooltip=folium.Tooltip(
+                    html.escape(place["name"]),
+                    permanent=True,
+                    direction="top",
+                    sticky=False
+                ),
+                popup=folium.Popup(
+                    popup_html,
+                    max_width=280
+                ),
+                icon=folium.DivIcon(
+                    html=marker_html,
+                    icon_size=(36, 36),
+                    icon_anchor=(18, 18)
+                )
+            )
+
+            marker.add_to(m)
+
+    # Neu khong co diem trong lich trinh
+    if all_coords:
+        m.fit_bounds(all_coords)
+    else:
+        m.location = [23.15, 105.25]
+        m.zoom_start = 9
+
+    folium.LayerControl(collapsed=True).add_to(m)
+
+    # Chu thich mau tuyen
+    legend_html = """
+    <div style="
+        position:fixed;
+        bottom:25px;
+        left:25px;
+        z-index:9999;
+        background:white;
+        padding:10px 13px;
+        border-radius:7px;
+        box-shadow:0 1px 6px rgba(0,0,0,0.25);
+        font-size:12px;
+        max-height:220px;
+        overflow:auto;
+    ">
+        <b>Chú thích tuyến đường</b><br>
+    """
+
     for i, day in enumerate(plan["days"]):
         color = DAY_COLORS[i % len(DAY_COLORS)]
-        legend_items += f"""
-        <div style="margin:4px 0">
-            <span style="display:inline-block;width:22px;height:5px;
-            background:{color};vertical-align:middle;margin-right:7px"></span>
-            {day['name']}
-        </div>
-        """
+        legend_html += (
+            f'<div style="margin-top:5px">'
+            f'<span style="display:inline-block;width:22px;'
+            f'border-top:4px solid {color};margin-right:6px;'
+            f'vertical-align:middle"></span>'
+            f'{html.escape(day["name"])}'
+            f'</div>'
+        )
 
-    legend_html = f"""
-    <div style="
-        position: fixed;
-        bottom: 25px;
-        left: 25px;
-        z-index: 9999;
-        background: white;
-        padding: 10px 14px;
-        border: 1px solid #aaa;
-        border-radius: 7px;
-        font-size: 13px;
-        box-shadow: 0 1px 5px #888;
-        ">
-        <b>MÀU TUYẾN ĐƯỜNG</b>
-        {legend_items}
+    legend_html += """
+    <div style="margin-top:7px;color:#666">
+        Nét đứt: tuyến ước tính khi không lấy được dữ liệu đường đi
+    </div>
     </div>
     """
 
     m.get_root().html.add_child(folium.Element(legend_html))
-    folium.LayerControl(collapsed=False).add_to(m)
 
     return m
 
+
 # ============================================================
-# PHẦN E. BẢNG TÓM TẮT LỊCH TRÌNH
+# F. CAC HAM HIEN THI
 # ============================================================
 
-def make_summary(plan):
+def format_duration(minutes):
+    hours = int(minutes // 60)
+    mins = int(round(minutes % 60))
+
+    if hours > 0:
+        return f"{hours} giờ {mins} phút"
+
+    return f"{mins} phút"
+
+
+def render_summary(plan, places):
     rows = []
 
-    for day_index, day in enumerate(plan["days"]):
-        result = calculate_day(day)
-        places = result["places"]
+    for i, day in enumerate(plan["days"]):
+        result = calculate_day_routes(day, places)
 
-        if not places:
-            place_names = "Chưa có địa điểm"
-            time_text = "-"
-        else:
-            place_names = " → ".join(p["name"] for p in places)
-            time_text = " | ".join([
-                f"{s.get('arrival','')} {get_place(s['place_id'])['name']}"
-                for s in day["stops"]
-                if get_place(s["place_id"])
-            ])
-
-        distance_text = (
-            f"{result['distance']:.1f} km"
-            if result["route_complete"]
-            else "Chưa lấy đủ tuyến đường"
-        )
+        names = [
+            p["name"] for p in result["stops"]
+        ]
 
         rows.append({
             "Ngày": day["name"],
-            "Thời gian & địa điểm": time_text,
-            "Lịch trình": place_names,
-            "Khoảng cách": distance_text
+            "Thời gian di chuyển": format_duration(
+                result["duration_min"]
+            ),
+            "Các điểm đến": " → ".join(names),
+            "Quãng đường (km)": round(
+                result["distance_km"], 1
+            ),
+            "Ghi chú": (
+                "Có đoạn ước tính"
+                if result["estimated"]
+                else "Theo tuyến đường"
+            )
         })
 
-    return pd.DataFrame(rows)
+    if rows:
+        df = pd.DataFrame(rows)
+        st.dataframe(
+            df,
+            use_container_width=True,
+            hide_index=True
+        )
 
-# ============================================================
-# PHẦN F. CHẾ ĐỘ CHIA SẺ CHỈ XEM BẢN ĐỒ
-# URL chia sẻ có dạng: https://ten-app.streamlit.app/?view=share
-# ============================================================
+        total_km = sum(
+            row["Quãng đường (km)"] for row in rows
+        )
 
-share_mode = st.query_params.get("view", "") == "share"
+        total_minutes = sum(
+            calculate_day_routes(day, places)["duration_min"]
+            for day in plan["days"]
+        )
 
-if share_mode:
-    st.title("🏔️ " + plan["name"])
-    st.caption("Lịch trình khám phá Hà Giang")
+        c1, c2 = st.columns(2)
+        c1.metric("Tổng quãng đường", f"{total_km:.1f} km")
+        c2.metric(
+            "Tổng thời gian di chuyển",
+            format_duration(total_minutes)
+        )
 
-    st.info(
-        "Đây là chế độ xem lịch trình. "
-        "Bản đồ hiển thị tuyến đường theo màu riêng của từng ngày."
+
+def render_share_view(plan, places):
+    st.title("🏔️ Lịch trình khám phá Hà Giang")
+    st.caption(
+        f"Phương án: {plan['name']} | "
+        f"{len(plan['days'])} ngày"
     )
 
-    map_mode = st.radio(
-        "Kiểu bản đồ",
-        ["Đường phố", "Vệ tinh"],
-        horizontal=True
+    tile_choice = st.selectbox(
+        "Nền bản đồ",
+        [
+            "CartoDB Positron",
+            "Esri Street",
+            "Esri Satellite",
+            "OpenStreetMap"
+        ],
+        index=0,
+        key="share_tile"
     )
 
-    map_object = create_map(plan, map_mode=map_mode)
+    map_object = create_map(
+        plan,
+        places,
+        tile_choice
+    )
 
     st_folium(
         map_object,
@@ -670,179 +757,335 @@ if share_mode:
         returned_objects=[]
     )
 
-    st.subheader("Tóm tắt lịch trình")
-    st.dataframe(
-        make_summary(plan),
-        use_container_width=True,
-        hide_index=True
-    )
+    st.subheader("Tổng hợp lịch trình")
+    render_summary(plan, places)
 
     st.caption(
-        "Khoảng cách là tổng các đoạn đường OSRM lấy được. "
-        "Nếu một đoạn không lấy được tuyến đường, khoảng cách ngày đó "
-        "sẽ hiển thị chưa đầy đủ."
+        "Khoảng cách và thời gian là ước tính theo tuyến đường "
+        "ô tô; thực tế có thể thay đổi theo điều kiện giao thông."
     )
 
+
+# ============================================================
+# G. KHOI TAO SESSION
+# ============================================================
+
+if "data" not in st.session_state:
+    st.session_state.data = load_data()
+
+data = st.session_state.data
+places = data["places"]
+plan = get_current_plan()
+
+# Chế độ chia sẻ: chỉ hiển thị bản đồ và bảng tổng hợp
+try:
+    share_mode = st.query_params.get("view") == "share"
+except Exception:
+    share_mode = False
+
+if share_mode:
+    render_share_view(plan, places)
     st.stop()
 
-# ============================================================
-# PHẦN G. GIAO DIỆN CHÍNH
-# ============================================================
-
-st.title("🏔️ HA GIANG TRIP PLANNER")
-st.caption("Công cụ lập lịch trình và khám phá Hà Giang")
-
-tab1, tab2, tab3, tab4 = st.tabs([
-    "🗓️ Lịch trình",
-    "🗺️ Bản đồ",
-    "📍 Thư viện địa điểm",
-    "💾 Lưu / Chia sẻ"
-])
 
 # ============================================================
-# TAB 1 - LỊCH TRÌNH
+# H. GIAO DIEN CHINH
 # ============================================================
 
-with tab1:
+st.title("🏔️ Hà Giang Trip Planner")
+st.caption(
+    "Công cụ lập lịch trình, quản lý địa điểm và theo dõi "
+    "tuyến đường khám phá Hà Giang."
+)
 
-    st.subheader("Quản lý phương án")
 
-    c1, c2, c3 = st.columns([3, 1, 1])
+# ============================================================
+# I. QUAN LY CAC PHUONG AN LICH TRINH
+# ============================================================
 
-    with c1:
-        selected_plan = st.selectbox(
-            "Chọn phương án",
-            range(len(data["plans"])),
-            format_func=lambda i: data["plans"][i]["name"],
-            index=data["active_plan"]
-        )
+st.sidebar.header("📋 Phương án lịch trình")
 
-        if selected_plan != data["active_plan"]:
-            data["active_plan"] = selected_plan
-            st.rerun()
+plan_names = {
+    p["id"]: p["name"]
+    for p in data["plans"]
+}
 
-    with c2:
-        if st.button("➕ Tạo mới"):
-            new_plan = {
-                "id": uid(),
-                "name": f"Phương án {len(data['plans']) + 1}",
-                "days": [
-                    {"name": "Ngày 1", "stops": []},
-                    {"name": "Ngày 2", "stops": []},
-                    {"name": "Ngày 3", "stops": []}
-                ]
-            }
-            data["plans"].append(new_plan)
-            data["active_plan"] = len(data["plans"]) - 1
-            st.rerun()
+plan_ids = list(plan_names.keys())
+selected_id = data["selected_plan_id"]
 
-    with c3:
-        if st.button("📋 Nhân bản"):
-            duplicate = copy.deepcopy(plan)
-            duplicate["id"] = uid()
-            duplicate["name"] = plan["name"] + " - Bản sao"
-            data["plans"].append(duplicate)
-            data["active_plan"] = len(data["plans"]) - 1
-            st.rerun()
+if selected_id not in plan_ids:
+    selected_id = plan_ids[0]
 
-    plan["name"] = st.text_input(
-        "Tên phương án",
-        value=plan["name"],
-        key=f"plan_name_{plan['id']}"
-    )
+selected_plan_id = st.sidebar.selectbox(
+    "Chọn phương án",
+    plan_ids,
+    index=plan_ids.index(selected_id),
+    format_func=lambda x: plan_names.get(x, x)
+)
 
-    st.divider()
+data["selected_plan_id"] = selected_plan_id
+plan = get_current_plan()
 
-    if st.button("➕ Thêm ngày"):
-        plan["days"].append({
-            "name": f"Ngày {len(plan['days']) + 1}",
-            "stops": []
-        })
+new_plan_name = st.sidebar.text_input(
+    "Tên phương án mới",
+    placeholder="Ví dụ: Hà Giang 4N3Đ"
+)
+
+if st.sidebar.button("➕ Tạo phương án mới", use_container_width=True):
+    new_plan = {
+        "id": new_id(),
+        "name": new_plan_name.strip() or "Phương án mới",
+        "days": [
+            {"name": "Ngày 1", "stops": []},
+            {"name": "Ngày 2", "stops": []},
+            {"name": "Ngày 3", "stops": []}
+        ]
+    }
+
+    data["plans"].append(new_plan)
+    data["selected_plan_id"] = new_plan["id"]
+    st.rerun()
+
+
+if st.sidebar.button("📑 Nhân bản phương án hiện tại", use_container_width=True):
+    copied = json.loads(json.dumps(plan))
+    copied["id"] = new_id()
+    copied["name"] = plan["name"] + " - Bản sao"
+
+    data["plans"].append(copied)
+    data["selected_plan_id"] = copied["id"]
+    st.rerun()
+
+
+edited_plan_name = st.sidebar.text_input(
+    "Đổi tên phương án hiện tại",
+    value=plan["name"]
+)
+
+if st.sidebar.button("Cập nhật tên phương án", use_container_width=True):
+    plan["name"] = edited_plan_name.strip() or plan["name"]
+    st.rerun()
+
+
+if len(data["plans"]) > 1:
+    if st.sidebar.button(
+        "🗑️ Xóa phương án hiện tại",
+        use_container_width=True
+    ):
+        data["plans"] = [
+            p for p in data["plans"]
+            if p["id"] != plan["id"]
+        ]
+        data["selected_plan_id"] = data["plans"][0]["id"]
         st.rerun()
 
-    if not plan["days"]:
-        st.info("Chưa có ngày. Hãy thêm ngày.")
+
+# ============================================================
+# J. THANH BEN - LUU / NHAP / XUAT
+# ============================================================
+
+st.sidebar.divider()
+st.sidebar.header("💾 Dữ liệu")
+
+if st.sidebar.button("💾 Lưu dữ liệu", use_container_width=True):
+    save_data(data)
+    st.sidebar.success("Đã lưu vào file JSON trên máy chủ.")
+
+json_content = json.dumps(
+    data,
+    ensure_ascii=False,
+    indent=2
+)
+
+st.sidebar.download_button(
+    "⬇️ Tải dữ liệu JSON",
+    data=json_content,
+    file_name="ha_giang_data.json",
+    mime="application/json",
+    use_container_width=True
+)
+
+uploaded_json = st.sidebar.file_uploader(
+    "Nhập dữ liệu JSON",
+    type=["json"],
+    key="json_import"
+)
+
+if uploaded_json is not None:
+    if st.sidebar.button("Nhập dữ liệu JSON", use_container_width=True):
+        try:
+            imported = json.load(uploaded_json)
+
+            if (
+                "places" in imported
+                and "plans" in imported
+                and imported["plans"]
+            ):
+                st.session_state.data = imported
+                st.success("Đã nhập dữ liệu thành công.")
+                st.rerun()
+            else:
+                st.sidebar.error("File JSON không đúng cấu trúc.")
+        except Exception as e:
+            st.sidebar.error(f"Lỗi đọc JSON: {e}")
+
+
+# ============================================================
+# K. CAC TAB CHUC NANG
+# ============================================================
+
+tab_map, tab_itinerary, tab_places, tab_export = st.tabs([
+    "🗺️ Bản đồ",
+    "📝 Lịch trình",
+    "📍 Thư viện địa điểm",
+    "📤 Chia sẻ & Xuất dữ liệu"
+])
+
+
+# ============================================================
+# TAB 1: BAN DO
+# ============================================================
+
+with tab_map:
+    st.subheader("Bản đồ hành trình")
+
+    col1, col2 = st.columns([2, 1])
+
+    with col1:
+        tile_choice = st.selectbox(
+            "Chọn nền bản đồ",
+            [
+                "CartoDB Positron",
+                "Esri Street",
+                "Esri Satellite",
+                "OpenStreetMap"
+            ],
+            key="main_tile"
+        )
+
+    with col2:
+        st.caption(
+            "Các tuyến đường được phân biệt màu theo từng ngày."
+        )
+
+    map_object = create_map(
+        plan,
+        places,
+        tile_choice
+    )
+
+    st_folium(
+        map_object,
+        width=None,
+        height=650,
+        returned_objects=[]
+    )
+
+    st.subheader("Tổng hợp quãng đường")
+    render_summary(plan, places)
+
+
+# ============================================================
+# TAB 2: QUAN LY LICH TRINH
+# ============================================================
+
+with tab_itinerary:
+    st.subheader("Chỉnh sửa lịch trình")
+
+    # Them ngay
+    col_add_day, col_del_day = st.columns(2)
+
+    with col_add_day:
+        if st.button("➕ Thêm ngày"):
+            plan["days"].append({
+                "name": f"Ngày {len(plan['days']) + 1}",
+                "stops": []
+            })
+            st.rerun()
+
+    with col_del_day:
+        if len(plan["days"]) > 1:
+            if st.button("➖ Xóa ngày cuối"):
+                plan["days"].pop()
+                st.rerun()
 
     for day_index, day in enumerate(plan["days"]):
+        color = DAY_COLORS[day_index % len(DAY_COLORS)]
 
         with st.expander(
-            f"📅 {day['name']} ({len(day['stops'])} điểm)",
+            f"{day['name']} - {len(day['stops'])} điểm",
             expanded=True
         ):
-
             day["name"] = st.text_input(
                 "Tên ngày",
                 value=day["name"],
                 key=f"day_name_{plan['id']}_{day_index}"
             )
 
-            place_options = {
-                f"{p['name']} ({p['category']})": p["id"]
-                for p in data["places"]
-            }
+            st.markdown(
+                f'<span style="color:{color};font-weight:bold">'
+                f'● Màu tuyến đường của {html.escape(day["name"])}'
+                f'</span>',
+                unsafe_allow_html=True
+            )
 
-            if place_options:
-                chosen = st.selectbox(
-                    "Chọn địa điểm",
+            # Them diem vao ngay
+            available_places = [
+                p for p in places
+                if p["id"] not in day["stops"]
+            ]
+
+            if available_places:
+                place_options = {
+                    p["id"]: f"{get_icon(p['category'])} {p['name']}"
+                    for p in available_places
+                }
+
+                selected_place = st.selectbox(
+                    "Chọn địa điểm để thêm",
                     list(place_options.keys()),
-                    key=f"place_{plan['id']}_{day_index}"
+                    format_func=lambda x: place_options[x],
+                    key=f"add_place_{plan['id']}_{day_index}"
                 )
 
                 if st.button(
-                    "Thêm địa điểm vào ngày",
-                    key=f"add_{plan['id']}_{day_index}"
+                    "➕ Thêm địa điểm vào ngày",
+                    key=f"add_stop_{plan['id']}_{day_index}"
                 ):
-                    place_id = place_options[chosen]
-                    day["stops"].append({
-                        "id": uid(),
-                        "place_id": place_id,
-                        "arrival": "08:00",
-                        "duration": 60,
-                        "note": "",
-                        "image": ""
-                    })
+                    day["stops"].append(selected_place)
                     st.rerun()
+
+            else:
+                st.info("Không còn địa điểm mới trong thư viện.")
 
             st.divider()
 
-            for stop_index, stop in enumerate(day["stops"]):
-                p = get_place(stop["place_id"])
+            # Danh sach diem den
+            if not day["stops"]:
+                st.info("Ngày này chưa có địa điểm.")
+            else:
+                for stop_index, place_id in enumerate(day["stops"]):
+                    place = get_place(place_id)
 
-                if not p:
-                    st.warning("Địa điểm không còn trong thư viện.")
-                    continue
+                    if not place:
+                        continue
 
-                st.markdown(
-                    f"**{stop_index + 1}. {p['name']}** · {p['category']}"
-                )
-
-                col1, col2, col3 = st.columns([1, 1, 1])
-
-                with col1:
-                    stop["arrival"] = st.text_input(
-                        "Giờ đến",
-                        value=stop.get("arrival", "08:00"),
-                        key=f"arrival_{stop['id']}"
+                    col_name, col_up, col_down, col_move, col_remove = st.columns(
+                        [5, 0.7, 0.7, 1.2, 0.8]
                     )
 
-                with col2:
-                    stop["duration"] = st.number_input(
-                        "Thời gian (phút)",
-                        min_value=0,
-                        max_value=1440,
-                        value=int(stop.get("duration", 60)),
-                        key=f"duration_{stop['id']}"
-                    )
+                    with col_name:
+                        st.write(
+                            f"{stop_index + 1}. "
+                            f"{get_icon(place['category'])} "
+                            f"**{place['name']}**"
+                        )
 
-                with col3:
-                    st.caption("Sắp xếp")
-                    c_up, c_down = st.columns(2)
-
-                    with c_up:
+                    with col_up:
                         if st.button(
                             "⬆️",
-                            key=f"up_{stop['id']}",
-                            disabled=stop_index == 0
+                            key=f"up_{plan['id']}_{day_index}_{stop_index}",
+                            disabled=(stop_index == 0)
                         ):
                             day["stops"][stop_index - 1], day["stops"][stop_index] = (
                                 day["stops"][stop_index],
@@ -850,11 +1093,11 @@ with tab1:
                             )
                             st.rerun()
 
-                    with c_down:
+                    with col_down:
                         if st.button(
                             "⬇️",
-                            key=f"down_{stop['id']}",
-                            disabled=stop_index == len(day["stops"]) - 1
+                            key=f"down_{plan['id']}_{day_index}_{stop_index}",
+                            disabled=(stop_index == len(day["stops"]) - 1)
                         ):
                             day["stops"][stop_index + 1], day["stops"][stop_index] = (
                                 day["stops"][stop_index],
@@ -862,370 +1105,313 @@ with tab1:
                             )
                             st.rerun()
 
-                stop["note"] = st.text_area(
-                    "Ghi chú",
-                    value=stop.get("note", ""),
-                    key=f"note_{stop['id']}"
+                    with col_move:
+                        other_days = [
+                            i for i in range(len(plan["days"]))
+                            if i != day_index
+                        ]
+
+                        if other_days:
+                            target_day = st.selectbox(
+                                "Chuyển",
+                                other_days,
+                                format_func=lambda x: plan["days"][x]["name"],
+                                key=f"move_target_{plan['id']}_{day_index}_{stop_index}"
+                            )
+
+                            if st.button(
+                                "Chuyển",
+                                key=f"move_{plan['id']}_{day_index}_{stop_index}"
+                            ):
+                                moved_id = day["stops"].pop(stop_index)
+                                plan["days"][target_day]["stops"].append(moved_id)
+                                st.rerun()
+
+                    with col_remove:
+                        if st.button(
+                            "❌",
+                            key=f"remove_{plan['id']}_{day_index}_{stop_index}"
+                        ):
+                            day["stops"].pop(stop_index)
+                            st.rerun()
+
+            # Ghi chu va hinh anh cho cac diem trong ngay
+            day_places = [
+                get_place(pid)
+                for pid in day["stops"]
+                if get_place(pid)
+            ]
+
+            if day_places:
+                st.divider()
+                note_place = st.selectbox(
+                    "Chọn địa điểm để thêm ghi chú / ảnh",
+                    [p["id"] for p in day_places],
+                    format_func=lambda x: get_place(x)["name"],
+                    key=f"note_place_{plan['id']}_{day_index}"
                 )
 
-                st.caption("Ảnh minh họa cho điểm đến / ghi chú")
+                current_place = get_place(note_place)
+
+                note_value = st.text_area(
+                    "Ghi chú",
+                    value=current_place.get("note", ""),
+                    key=f"note_text_{plan['id']}_{day_index}"
+                )
 
                 uploaded_image = st.file_uploader(
-                    "Tải ảnh lên",
+                    "Thêm ảnh cho địa điểm",
                     type=["png", "jpg", "jpeg", "webp"],
-                    key=f"image_{stop['id']}"
+                    key=f"note_image_{plan['id']}_{day_index}"
                 )
 
-                if uploaded_image is not None:
-                    stop["image"] = base64.b64encode(
-                        uploaded_image.getvalue()
-                    ).decode("utf-8")
-                    stop["image_type"] = uploaded_image.type
-
-                if stop.get("image"):
-                    try:
-                        image_bytes = base64.b64decode(stop["image"])
-                        st.image(
-                            image_bytes,
-                            caption="Ảnh đã thêm",
-                            width=300
-                        )
-                    except Exception:
-                        pass
-
-                other_days = [
-                    i for i in range(len(plan["days"]))
-                    if i != day_index
-                ]
-
-                if other_days:
-                    target = st.selectbox(
-                        "Chuyển sang ngày",
-                        other_days,
-                        format_func=lambda i: plan["days"][i]["name"],
-                        key=f"target_{stop['id']}"
-                    )
-
-                    if st.button(
-                        "Chuyển điểm đến",
-                        key=f"move_{stop['id']}"
-                    ):
-                        plan["days"][target]["stops"].append(stop)
-                        day["stops"].pop(stop_index)
-                        st.rerun()
-
                 if st.button(
-                    "🗑️ Xóa điểm đến",
-                    key=f"delete_{stop['id']}"
+                    "Lưu ghi chú",
+                    key=f"save_note_{plan['id']}_{day_index}"
                 ):
-                    day["stops"].pop(stop_index)
+                    current_place["note"] = note_value
+
+                    if uploaded_image is not None:
+                        image_bytes = uploaded_image.getvalue()
+                        current_place["image"] = base64.b64encode(
+                            image_bytes
+                        ).decode("utf-8")
+
+                    st.success("Đã cập nhật ghi chú.")
                     st.rerun()
 
-                st.divider()
+                if current_place.get("image"):
+                    st.image(
+                        base64.b64decode(current_place["image"]),
+                        caption=current_place["name"],
+                        width=300
+                    )
 
-            if st.button(
-                f"🗑️ Xóa ngày {day['name']}",
-                key=f"delete_day_{plan['id']}_{day_index}"
-            ):
-                plan["days"].pop(day_index)
+
+# ============================================================
+# TAB 3: THU VIEN DIA DIEM
+# ============================================================
+
+with tab_places:
+    st.subheader("Thư viện địa điểm Hà Giang")
+
+    st.caption(
+        "Địa điểm trong thư viện có thể được thêm vào nhiều phương án "
+        "và nhiều ngày khác nhau."
+    )
+
+    with st.expander("➕ Thêm địa điểm mới", expanded=False):
+        with st.form("add_place_form"):
+            new_name = st.text_input("Tên địa điểm")
+            new_category = st.selectbox(
+                "Phân loại",
+                CATEGORIES
+            )
+
+            c1, c2 = st.columns(2)
+
+            with c1:
+                new_lat = st.number_input(
+                    "Latitude",
+                    value=23.1500,
+                    format="%.6f"
+                )
+
+            with c2:
+                new_lon = st.number_input(
+                    "Longitude",
+                    value=105.2500,
+                    format="%.6f"
+                )
+
+            new_description = st.text_area("Mô tả")
+
+            add_submitted = st.form_submit_button(
+                "Thêm địa điểm"
+            )
+
+            if add_submitted:
+                if new_name.strip():
+                    places.append({
+                        "id": new_id(),
+                        "name": new_name.strip(),
+                        "category": new_category,
+                        "lat": float(new_lat),
+                        "lon": float(new_lon),
+                        "description": new_description
+                    })
+
+                    st.success("Đã thêm địa điểm.")
+                    st.rerun()
+                else:
+                    st.error("Vui lòng nhập tên địa điểm.")
+
+    st.divider()
+
+    # Sua dia diem
+    with st.expander("✏️ Chỉnh sửa địa điểm", expanded=False):
+        if places:
+            edit_id = st.selectbox(
+                "Chọn địa điểm",
+                [p["id"] for p in places],
+                format_func=lambda x: get_place(x)["name"],
+                key="edit_place_id"
+            )
+
+            edit_place = get_place(edit_id)
+
+            with st.form("edit_place_form"):
+                edit_name = st.text_input(
+                    "Tên",
+                    value=edit_place["name"]
+                )
+
+                edit_category = st.selectbox(
+                    "Phân loại",
+                    CATEGORIES,
+                    index=(
+                        CATEGORIES.index(edit_place["category"])
+                        if edit_place.get("category") in CATEGORIES
+                        else CATEGORIES.index("Khác")
+                    )
+                )
+
+                c1, c2 = st.columns(2)
+
+                with c1:
+                    edit_lat = st.number_input(
+                        "Latitude",
+                        value=float(edit_place["lat"]),
+                        format="%.6f"
+                    )
+
+                with c2:
+                    edit_lon = st.number_input(
+                        "Longitude",
+                        value=float(edit_place["lon"]),
+                        format="%.6f"
+                    )
+
+                edit_description = st.text_area(
+                    "Mô tả",
+                    value=edit_place.get("description", "")
+                )
+
+                edit_submitted = st.form_submit_button(
+                    "Cập nhật địa điểm"
+                )
+
+                if edit_submitted:
+                    edit_place["name"] = edit_name.strip()
+                    edit_place["category"] = edit_category
+                    edit_place["lat"] = float(edit_lat)
+                    edit_place["lon"] = float(edit_lon)
+                    edit_place["description"] = edit_description
+
+                    st.success("Đã cập nhật.")
+                    st.rerun()
+
+    # Xoa dia diem
+    with st.expander("🗑️ Xóa địa điểm", expanded=False):
+        if places:
+            delete_id = st.selectbox(
+                "Chọn địa điểm cần xóa",
+                [p["id"] for p in places],
+                format_func=lambda x: get_place(x)["name"],
+                key="delete_place_id"
+            )
+
+            if st.button("Xóa địa điểm khỏi thư viện"):
+                data["places"] = [
+                    p for p in data["places"]
+                    if p["id"] != delete_id
+                ]
+
+                for p in data["plans"]:
+                    for d in p["days"]:
+                        d["stops"] = [
+                            x for x in d["stops"]
+                            if x != delete_id
+                        ]
+
                 st.rerun()
 
-# ============================================================
-# TAB 2 - BẢN ĐỒ
-# ============================================================
+    st.divider()
 
-with tab2:
+    # Hien thi danh sach
+    place_rows = []
 
-    st.subheader("Bản đồ hành trình")
-
-    map_mode = st.radio(
-        "Chọn nền bản đồ",
-        ["Đường phố", "Vệ tinh"],
-        horizontal=True
-    )
-
-    show_all = st.checkbox(
-        "Hiển thị tất cả địa điểm trong thư viện",
-        value=False
-    )
-
-    with st.spinner("Đang tải bản đồ và tính tuyến đường..."):
-        map_object = create_map(
-            plan,
-            map_mode=map_mode,
-            show_all_places=show_all
-        )
-
-        st_folium(
-            map_object,
-            width=None,
-            height=650,
-            returned_objects=[]
-        )
-
-    st.markdown("### Tóm tắt lịch trình theo ngày")
-
-    summary = make_summary(plan)
+    for p in data["places"]:
+        place_rows.append({
+            "Địa điểm": p["name"],
+            "Phân loại": p["category"],
+            "Icon": get_icon(p["category"]),
+            "Latitude": p["lat"],
+            "Longitude": p["lon"]
+        })
 
     st.dataframe(
-        summary,
+        pd.DataFrame(place_rows),
         use_container_width=True,
         hide_index=True
     )
 
-    st.caption(
-        "Các tuyến đường được lấy từ dịch vụ OSRM. "
-        "Đường nét đứt là đường nối ước tính khi không lấy được dữ liệu "
-        "tuyến đường. Khoảng cách tổng chỉ cộng các đoạn OSRM lấy thành công."
+
+# ============================================================
+# TAB 4: CHIA SE VA XUAT DU LIEU
+# ============================================================
+
+with tab_export:
+    st.subheader("Chia sẻ lịch trình")
+
+    st.markdown(
+        "Chế độ chia sẻ chỉ hiển thị bản đồ và bảng tổng hợp. "
+        "Các phần chỉnh sửa được ẩn trong giao diện chia sẻ."
     )
 
-    st.markdown("### Chú giải tuyến đường")
+    try:
+        current_url = st.context.url
+        share_url = current_url.split("?")[0] + "?view=share"
 
-    legend_cols = st.columns(min(max(len(plan["days"]), 1), 4))
+        st.code(share_url, language=None)
 
-    for i, day in enumerate(plan["days"]):
-        color = DAY_COLORS[i % len(DAY_COLORS)]
-        with legend_cols[i % len(legend_cols)]:
-            st.markdown(
-                f"<span style='color:{color};font-size:25px'>━━</span> "
-                f"**{day['name']}**",
-                unsafe_allow_html=True
-            )
-
-# ============================================================
-# TAB 3 - THƯ VIỆN ĐỊA ĐIỂM
-# ============================================================
-
-with tab3:
-
-    st.subheader("Thư viện địa điểm")
-
-    search = st.text_input("Tìm kiếm địa điểm")
-
-    categories = sorted(set(
-        p["category"] for p in data["places"]
-    ))
-
-    selected_category = st.selectbox(
-        "Lọc theo phân loại",
-        ["Tất cả"] + categories
-    )
-
-    filtered_places = [
-        p for p in data["places"]
-        if search.lower() in p["name"].lower()
-        and (
-            selected_category == "Tất cả"
-            or p["category"] == selected_category
-        )
-    ]
-
-    for p in filtered_places:
-        icon_name, icon_color = category_icon(p["category"])
-
-        with st.expander(
-            f"📍 {p['name']} - {p['category']}"
-        ):
-            st.write(p.get("description", ""))
-            st.write(
-                f"Tọa độ: {p['lat']}, {p['lon']}"
-            )
-
-            if p.get("image"):
-                st.image(p["image"], width=300)
-
-    st.divider()
-    st.markdown("### Thêm địa điểm")
-
-    with st.form("add_place_form"):
-        new_name = st.text_input("Tên địa điểm")
-
-        new_category = st.selectbox(
-            "Phân loại",
-            [
-                "Check-in", "Ăn uống", "Lưu trú",
-                "Làng bản", "Tham quan", "Trải nghiệm",
-                "Thác nước", "Thiên nhiên", "Văn hóa",
-                "Leo núi", "Đô thị", "Cung đường", "Khác"
-            ]
+        st.button(
+            "📋 Sao chép link chia sẻ",
+            on_click=None,
+            disabled=True,
+            help="Hãy sao chép đường link phía trên."
         )
 
-        c1, c2 = st.columns(2)
-
-        with c1:
-            new_lat = st.number_input(
-                "Vĩ độ",
-                value=23.0,
-                format="%.6f"
-            )
-
-        with c2:
-            new_lon = st.number_input(
-                "Kinh độ",
-                value=105.0,
-                format="%.6f"
-            )
-
-        new_description = st.text_area("Mô tả")
-        new_image_url = st.text_input("Link ảnh (nếu có)")
-
-        submitted = st.form_submit_button("Thêm địa điểm")
-
-        if submitted:
-            if not new_name.strip():
-                st.error("Bạn cần nhập tên địa điểm.")
-            else:
-                data["places"].append({
-                    "id": uid(),
-                    "name": new_name.strip(),
-                    "category": new_category,
-                    "lat": new_lat,
-                    "lon": new_lon,
-                    "description": new_description,
-                    "image": new_image_url
-                })
-                st.success("Đã thêm địa điểm. Hãy lưu dữ liệu.")
-                st.rerun()
-
-    st.divider()
-    st.markdown("### Chỉnh sửa / xóa địa điểm")
-
-    if data["places"]:
-        selected_id = st.selectbox(
-            "Chọn địa điểm cần chỉnh sửa",
-            [p["id"] for p in data["places"]],
-            format_func=lambda x: get_place(x)["name"]
+    except Exception:
+        st.info(
+            "Sau khi deploy trên Streamlit Cloud, thêm "
+            "?view=share vào cuối URL ứng dụng để mở chế độ chia sẻ."
         )
-
-        selected_place = get_place(selected_id)
-
-        with st.form("edit_place_form"):
-            edit_name = st.text_input(
-                "Tên",
-                value=selected_place["name"]
-            )
-
-            edit_category = st.selectbox(
-                "Phân loại",
-                [
-                    "Check-in", "Ăn uống", "Lưu trú",
-                    "Làng bản", "Tham quan", "Trải nghiệm",
-                    "Thác nước", "Thiên nhiên", "Văn hóa",
-                    "Leo núi", "Đô thị", "Cung đường", "Khác"
-                ],
-                index=(
-                    [
-                        "Check-in", "Ăn uống", "Lưu trú",
-                        "Làng bản", "Tham quan", "Trải nghiệm",
-                        "Thác nước", "Thiên nhiên", "Văn hóa",
-                        "Leo núi", "Đô thị", "Cung đường", "Khác"
-                    ].index(selected_place["category"])
-                    if selected_place["category"] in [
-                        "Check-in", "Ăn uống", "Lưu trú",
-                        "Làng bản", "Tham quan", "Trải nghiệm",
-                        "Thác nước", "Thiên nhiên", "Văn hóa",
-                        "Leo núi", "Đô thị", "Cung đường", "Khác"
-                    ] else 12
-                )
-            )
-
-            edit_lat = st.number_input(
-                "Vĩ độ",
-                value=float(selected_place["lat"]),
-                format="%.6f"
-            )
-
-            edit_lon = st.number_input(
-                "Kinh độ",
-                value=float(selected_place["lon"]),
-                format="%.6f"
-            )
-
-            edit_description = st.text_area(
-                "Mô tả",
-                value=selected_place.get("description", "")
-            )
-
-            update = st.form_submit_button("Cập nhật địa điểm")
-
-            if update:
-                selected_place.update({
-                    "name": edit_name,
-                    "category": edit_category,
-                    "lat": edit_lat,
-                    "lon": edit_lon,
-                    "description": edit_description
-                })
-                st.success("Đã cập nhật.")
-                st.rerun()
-
-        if st.button("🗑️ Xóa địa điểm đang chọn"):
-            data["places"] = [
-                p for p in data["places"]
-                if p["id"] != selected_id
-            ]
-
-            for p_plan in data["plans"]:
-                for d in p_plan["days"]:
-                    d["stops"] = [
-                        s for s in d["stops"]
-                        if s["place_id"] != selected_id
-                    ]
-
-            st.rerun()
-
-# ============================================================
-# TAB 4 - LƯU / XUẤT / CHIA SẺ
-# ============================================================
-
-with tab4:
-
-    st.subheader("Lưu dữ liệu")
-
-    st.warning(
-        "Những thay đổi trong ứng dụng chỉ được ghi vào file JSON "
-        "khi bạn nhấn nút Lưu dữ liệu."
-    )
-
-    if st.button("💾 LƯU DỮ LIỆU", type="primary"):
-        save_data()
-        st.success("Đã lưu vào ha_giang_data.json")
 
     st.divider()
 
-    st.markdown("### Xuất dữ liệu JSON")
+    st.subheader("Xuất Excel")
 
-    json_data = json.dumps(
-        data,
-        ensure_ascii=False,
-        indent=2
-    ).encode("utf-8")
+    excel_rows = []
 
-    st.download_button(
-        "⬇️ Tải toàn bộ dữ liệu JSON",
-        data=json_data,
-        file_name="ha_giang_data.json",
-        mime="application/json"
-    )
+    for day_index, day in enumerate(plan["days"]):
+        route_data = calculate_day_routes(day, places)
 
-    st.markdown("### Xuất lịch trình Excel")
+        for stop_index, place in enumerate(route_data["stops"]):
+            excel_rows.append({
+                "Ngày": day["name"],
+                "Thứ tự": stop_index + 1,
+                "Địa điểm": place["name"],
+                "Phân loại": place["category"],
+                "Latitude": place["lat"],
+                "Longitude": place["lon"],
+                "Mô tả": place.get("description", ""),
+                "Ghi chú": place.get("note", "")
+            })
 
-    rows = []
+    excel_df = pd.DataFrame(excel_rows)
 
-    for p_plan in data["plans"]:
-        for day in p_plan["days"]:
-            for stop in day["stops"]:
-                p = get_place(stop["place_id"])
-                if p:
-                    rows.append({
-                        "Phương án": p_plan["name"],
-                        "Ngày": day["name"],
-                        "Địa điểm": p["name"],
-                        "Phân loại": p["category"],
-                        "Giờ đến": stop.get("arrival", ""),
-                        "Thời gian (phút)": stop.get("duration", 0),
-                        "Ghi chú": stop.get("note", "")
-                    })
+    import io
 
     excel_buffer = io.BytesIO()
 
@@ -1233,111 +1419,49 @@ with tab4:
         excel_buffer,
         engine="openpyxl"
     ) as writer:
-        pd.DataFrame(rows).to_excel(
+        excel_df.to_excel(
             writer,
             index=False,
-            sheet_name="Lich_trinh"
+            sheet_name="Lich trinh"
         )
 
         pd.DataFrame(data["places"]).to_excel(
             writer,
             index=False,
-            sheet_name="Dia_diem"
+            sheet_name="Thu vien dia diem"
         )
 
     st.download_button(
-        "⬇️ Xuất Excel",
+        "⬇️ Tải lịch trình Excel",
         data=excel_buffer.getvalue(),
-        file_name="ha_giang_trip.xlsx",
+        file_name="lich_trinh_ha_giang.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
 
     st.divider()
 
-    st.markdown("### Nhập dữ liệu JSON")
+    st.subheader("Xuất dữ liệu JSON")
 
-    uploaded_json = st.file_uploader(
-        "Chọn file JSON đã xuất trước đó",
-        type=["json"]
+    st.download_button(
+        "⬇️ Tải toàn bộ dữ liệu JSON",
+        data=json.dumps(
+            data,
+            ensure_ascii=False,
+            indent=2
+        ),
+        file_name="ha_giang_data.json",
+        mime="application/json"
     )
 
-    if uploaded_json is not None:
-        if st.button("Nhập và thay thế dữ liệu hiện tại"):
-            try:
-                imported = json.load(uploaded_json)
 
-                if (
-                    isinstance(imported, dict)
-                    and isinstance(imported.get("places"), list)
-                    and isinstance(imported.get("plans"), list)
-                    and len(imported["plans"]) > 0
-                ):
-                    data.clear()
-                    data.update(imported)
-                    data["active_plan"] = min(
-                        max(0, int(data.get("active_plan", 0))),
-                        len(data["plans"]) - 1
-                    )
-                    save_data()
-                    st.success("Đã nhập dữ liệu.")
-                    st.rerun()
-                else:
-                    st.error("Cấu trúc JSON không hợp lệ.")
-
-            except Exception as e:
-                st.error(f"Lỗi nhập dữ liệu: {e}")
-
-    st.divider()
-
-    st.markdown("### Tạo đường dẫn chia sẻ chỉ xem bản đồ")
-
-    app_url = st.text_input(
-        "Địa chỉ website Streamlit của bạn",
-        placeholder="https://ten-ung-dung.streamlit.app"
-    )
-
-    if app_url.strip():
-        share_url = (
-            app_url.strip().rstrip("/")
-            + "?view=share"
-        )
-
-        st.code(share_url)
-
-        st.caption(
-            "Gửi đường dẫn này cho người khác để họ xem bản đồ "
-            "và bảng tóm tắt mà không thấy giao diện chỉnh sửa."
-        )
-
-        st.link_button(
-            "Mở chế độ xem chia sẻ",
-            share_url
-        )
-
-    st.divider()
-
-    st.markdown("### Xóa phương án")
-
-    if len(data["plans"]) > 1:
-        delete_index = st.selectbox(
-            "Chọn phương án cần xóa",
-            range(len(data["plans"])),
-            format_func=lambda i: data["plans"][i]["name"]
-        )
-
-        if st.button("Xóa phương án"):
-            data["plans"].pop(delete_index)
-            data["active_plan"] = min(
-                data["active_plan"],
-                len(data["plans"]) - 1
-            )
-            st.rerun()
-    else:
-        st.caption("Cần giữ lại ít nhất một phương án.")
+# ============================================================
+# L. THONG TIN CUOI TRANG
+# ============================================================
 
 st.divider()
 
 st.caption(
-    "Ha Giang Trip Planner | Khoảng cách và tuyến đường chỉ mang tính "
-    "tham khảo, cần kiểm tra lại trước khi di chuyển."
+    "Ha Giang Trip Planner | "
+    "Bản đồ sử dụng dữ liệu nền từ các nhà cung cấp bản đồ bên thứ ba. "
+    "Tuyến đường và thời gian chỉ mang tính tham khảo."
 )
