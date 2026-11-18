@@ -856,9 +856,33 @@ def render_summary(plan, places):
 # I. CHIA SE VIEW
 # ============================================================
 
-def render_share_view(plan, places):
+def render_share_view(data):
 
     st.title("🏔️ Lịch trình khám phá Hà Giang")
+
+    # Cho phep nguoi xem tu chon phuong an, doc lap voi selected_plan_id
+    # cua nguoi quan ly/chinh sua lich trinh.
+    plans = data.get("plans", [])
+
+    if not plans:
+        st.warning("Chưa có phương án lịch trình để chia sẻ.")
+        return
+
+    plan_options = {p["id"]: p for p in plans}
+    default_plan_id = data.get("selected_plan_id")
+    if default_plan_id not in plan_options:
+        default_plan_id = plans[0]["id"]
+
+    selected_share_plan_id = st.selectbox(
+        "Chọn phương án lịch trình",
+        options=list(plan_options.keys()),
+        index=list(plan_options.keys()).index(default_plan_id),
+        format_func=lambda plan_id: plan_options[plan_id].get("name", "Phương án"),
+        key="share_selected_plan_id"
+    )
+
+    plan = plan_options[selected_share_plan_id]
+    places = data.get("places", [])
 
     st.caption(
         f"Phương án: {plan['name']} | "
@@ -907,7 +931,7 @@ except Exception:
     share_mode = False
 
 if share_mode:
-    render_share_view(plan, places)
+    render_share_view(data)
     st.stop()
 
 
