@@ -320,76 +320,131 @@ def initial_data():
 # D. DOC VA CAP NHAT DU LIEU JSON CU
 # ============================================================
 
+def normalize_image(image):
+    """Chuyen anh cu/moi ve object {name, mime_type, data}."""
+    if not image:
+        return None
+    if isinstance(image, str):
+        return {"name": "image.jpg", "mime_type": "image/jpeg", "data": image}
+    if isinstance(image, dict) and image.get("data"):
+        return {
+            "name": image.get("name", "image"),
+            "mime_type": image.get("mime_type", "image/jpeg"),
+            "data": image["data"]
+        }
+    return None
+
+
+def normalize_stop(stop, places_by_id):
+    """Tuong thich ca stop cu dang place_id va stop moi dang dict."""
+    if isinstance(stop, str):
+        place_id = stop
+        stop_data = {}
+    elif isinstance(stop, dict):
+        place_id = stop.get("place_id") or stop.get("id")
+        stop_data = stop
+    else:
+        return None
+
+    if not place_id:
+        return None
+
+    place = places_by_id.get(place_id, {})
+    raw_images = stop_data.get("images", [])
+    if not isinstance(raw_images, list):
+        raw_images = [raw_images]
+    images = [img for img in (normalize_image(x) for x in raw_images) if img]
+
+    # Di chuyen du lieu ghi chu/anh cu cap dia diem vao stop neu stop chua co.
+    if not images and place.get("image"):
+        old_image = normalize_image(place.get("image"))
+        if old_image:
+            images.append(old_image)
+    note = stop_data.get("note")
+    if note is None or note == "":
+        note = place.get("note", "")
+
+    return {
+        "place_id": place_id,
+        "arrival_time": stop_data.get("arrival_time", stop_data.get("time", "")) or "",
+        "note": note or "",
+        "images": images
+    }
+
+
+def normalize_data(data):
+    if not isinstance(data, dict):
+        raise ValueError("Dữ liệu JSON không phải một object hợp lệ.")
+    if "places" not in data or not isinstance(data["places"], list):
+        data["places"] = DEFAULT_PLACES
+    if "plans" not in data or not isinstance(data["plans"], list) or not data["plans"]:
+        data["plans"] = [default_plan()]
+
+    places_by_id = {p.get("id"): p for p in data["places"] if p.get("id")}
+    for plan in data["plans"]:
+        plan.setdefault("id", new_id())
+        plan.setdefault("name", "Phương án")
+        plan.setdefault("days", [])
+        for day in plan["days"]:
+            day.setdefault("name", f"Ngày {plan['days'].index(day) + 1}")
+            raw_stops = day.get("stops", [])
+            day["stops"] = [
+                normalized for normalized in
+                (normalize_stop(x, places_by_id) for x in raw_stops)
+                if normalized is not None
+            ]
+
+    selected = data.get("selected_plan_id")
+    if selected not in [p["id"] for p in data["plans"]]:
+        data["selected_plan_id"] = data["plans"][0]["id"]
+
+    # Cap nhat thong tin diem ben thuyen cu, khong thay doi ID trong plan.
+    for place in data["places"]:
+        if place.get("id") == "nho_que":
+            place.update({
+                "name": "Bến thuyền Hẻm Tu Sản",
+                "category": "Trải nghiệm",
+                "lat": 23.261362,
+                "lon": 105.381910,
+                "description": "Điểm xuống thuyền tham quan sông Nho Quế và hẻm Tu Sản."
+            })
+
+    has_nho_que = any(p.get("id") == "nho_que" for p in data["places"])
+    if has_nho_que:
+        data["places"] = [p for p in data["places"] if p.get("id") != "ben_ta_lang"]
+        for plan in data["plans"]:
+            for day in plan.get("days", []):
+                for stop in day.get("stops", []):
+                    if stop["place_id"] == "ben_ta_lang":
+                        stop["place_id"] = "nho_que"
+
+    return data
+
+
 def load_data():
     if not os.path.exists(DATA_FILE):
         return initial_data()
-
     try:
         with open(DATA_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-
-        if "places" not in data:
-            data["places"] = DEFAULT_PLACES
-
-        if "plans" not in data or not data["plans"]:
-            data["plans"] = [default_plan()]
-
-        if "selected_plan_id" not in data:
-            data["selected_plan_id"] = data["plans"][0]["id"]
-
-        # Cap nhat diem nho_que cu thanh Ben thuyen Hem Tu San
-        for place in data["places"]:
-            if place.get("id") == "nho_que":
-                place["name"] = "Bến thuyền Hẻm Tu Sản"
-                place["category"] = "Trải nghiệm"
-                place["lat"] = 23.261362
-                place["lon"] = 105.381910
-                place["description"] = (
-                    "Điểm xuống thuyền tham quan sông Nho Quế "
-                    "và hẻm Tu Sản."
-                )
-
-        # Neu da them ben_ta_lang truoc do thi loai bo
-        # va thay bang nho_que trong lich trinh
-        has_nho_que = any(
-            p.get("id") == "nho_que"
-            for p in data["places"]
+            return normalize_data(json.load(f))
+    except Exception as exc:
+        # Khong ghi de file loi va khong im lang coi nhu du lieu mac dinh.
+        st.session_state.data_load_failed = True
+        st.error(
+            f"Không thể đọc {DATA_FILE}: {exc}. File gốc chưa bị ghi đè. "
+            "Bạn có thể thử nhập lại bản JSON sao lưu ở thanh bên."
         )
-
-        if has_nho_que:
-            data["places"] = [
-                p for p in data["places"]
-                if p.get("id") != "ben_ta_lang"
-            ]
-
-            for plan in data["plans"]:
-                for day in plan.get("days", []):
-                    day["stops"] = [
-                        "nho_que" if x == "ben_ta_lang" else x
-                        for x in day.get("stops", [])
-                    ]
-
-                    # Loai bo ID trung nhau trong cung mot ngay
-                    unique_stops = []
-                    for x in day["stops"]:
-                        if x not in unique_stops:
-                            unique_stops.append(x)
-                    day["stops"] = unique_stops
-
-        return data
-
-    except Exception:
         return initial_data()
 
 
 def save_data(data):
-    with open(DATA_FILE, "w", encoding="utf-8") as f:
-        json.dump(
-            data,
-            f,
-            ensure_ascii=False,
-            indent=2
-        )
+    """Ghi file tam truoc, sau do thay the de giam nguy co file JSON bi hong."""
+    temp_file = DATA_FILE + ".tmp"
+    with open(temp_file, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(temp_file, DATA_FILE)
 
 
 # ============================================================
@@ -487,15 +542,16 @@ def get_osrm_route(lat1, lon1, lat2, lon2):
 
 
 def calculate_day_routes(day, places):
-    place_dict = {
-        p["id"]: p for p in places
-    }
-
-    stops = [
-        place_dict[place_id]
-        for place_id in day["stops"]
-        if place_id in place_dict
-    ]
+    place_dict = {p["id"]: p for p in places}
+    stops = []
+    for raw_stop in day.get("stops", []):
+        stop_data = raw_stop if isinstance(raw_stop, dict) else {"place_id": raw_stop}
+        place_id = stop_data.get("place_id")
+        if place_id in place_dict:
+            # Ban sao rieng cho lan ghe tham, khong sua thu vien dia diem.
+            merged = dict(place_dict[place_id])
+            merged["_stop"] = stop_data
+            stops.append(merged)
 
     total_distance = 0
     total_duration = 0
@@ -503,40 +559,21 @@ def calculate_day_routes(day, places):
     all_estimated = False
 
     for i in range(len(stops) - 1):
-        a = stops[i]
-        b = stops[i + 1]
-
-        route = get_osrm_route(
-            a["lat"], a["lon"],
-            b["lat"], b["lon"]
-        )
-
+        a, b = stops[i], stops[i + 1]
+        route = get_osrm_route(a["lat"], a["lon"], b["lat"], b["lon"])
         if route:
             distance = route["distance_km"]
             duration = route["duration_min"]
             coordinates = route["coordinates"]
             estimated = False
-
         else:
-            # Uoc tinh neu OSRM khong hoat dong
-            distance = haversine_km(
-                a["lat"], a["lon"],
-                b["lat"], b["lon"]
-            ) * 1.35
-
+            distance = haversine_km(a["lat"], a["lon"], b["lat"], b["lon"]) * 1.35
             duration = distance / 30 * 60
-
-            coordinates = [
-                [a["lat"], a["lon"]],
-                [b["lat"], b["lon"]]
-            ]
-
+            coordinates = [[a["lat"], a["lon"]], [b["lat"], b["lon"]]]
             estimated = True
             all_estimated = True
-
         total_distance += distance
         total_duration += duration
-
         route_segments.append({
             "coordinates": coordinates,
             "distance_km": distance,
@@ -551,6 +588,29 @@ def calculate_day_routes(day, places):
         "segments": route_segments,
         "estimated": all_estimated
     }
+
+
+def render_detailed_itinerary(plan, places):
+    rows = []
+    place_dict = {p["id"]: p for p in places}
+    for day in plan.get("days", []):
+        for index, stop in enumerate(day.get("stops", []), start=1):
+            stop_data = stop if isinstance(stop, dict) else {"place_id": stop}
+            place = place_dict.get(stop_data.get("place_id"))
+            if not place:
+                continue
+            rows.append({
+                "Ngày": day.get("name", ""),
+                "Thứ tự": index,
+                "Thời gian đến": stop_data.get("arrival_time", ""),
+                "Địa điểm": place.get("name", ""),
+                "Ghi chú": stop_data.get("note", "")
+            })
+    if rows:
+        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+    else:
+        st.info("Chưa có điểm đến trong lịch trình.")
+
 
 
 # ============================================================
@@ -689,20 +749,27 @@ def create_map(plan, places):
                 </div>
             """
 
-            if place.get("note"):
+            stop_data = place.get("_stop", {})
+            arrival_time = stop_data.get("arrival_time", "")
+            if arrival_time:
+                popup_html += (
+                    '<div style="margin-top:8px;font-weight:bold">'
+                    '🕒 Đến: ' + html.escape(arrival_time) + '</div>'
+                )
+            if stop_data.get("note"):
                 popup_html += (
                     '<p style="margin-top:8px">'
-                    + html.escape(place["note"])
+                    + html.escape(stop_data["note"])
                     + '</p>'
                 )
-
-            if place.get("image"):
-                popup_html += (
-                    '<img src="data:image/jpeg;base64,'
-                    + place["image"]
-                    + '" style="width:100%;margin-top:8px;'
-                    + 'border-radius:6px">'
-                )
+            for image_data in stop_data.get("images", [])[:8]:
+                normalized_image = normalize_image(image_data)
+                if normalized_image:
+                    popup_html += (
+                        '<img src="data:' + html.escape(normalized_image["mime_type"]) + ';base64,'
+                        + normalized_image["data"]
+                        + '" style="width:100%;margin-top:8px;border-radius:6px">'
+                    )
 
             popup_html += "</div>"
 
@@ -908,6 +975,9 @@ def render_share_view(data):
         places
     )
 
+    st.subheader("Lịch trình chi tiết từng điểm")
+    render_detailed_itinerary(plan, places)
+
     st.caption(
         "Khoảng cách và thời gian là ước tính theo tuyến đường "
         "ô tô. Thực tế có thể thay đổi theo điều kiện giao thông."
@@ -919,7 +989,8 @@ def render_share_view(data):
 # ============================================================
 
 if "data" not in st.session_state:
-    st.session_state.data = load_data()
+    st.session_state.data_load_failed = False
+    st.session_state.data = normalize_data(load_data())
 
 data = st.session_state.data
 places = data["places"]
@@ -1066,7 +1137,8 @@ st.sidebar.header("💾 Dữ liệu")
 
 if st.sidebar.button(
     "💾 Lưu dữ liệu",
-    use_container_width=True
+    use_container_width=True,
+    disabled=st.session_state.get("data_load_failed", False)
 ):
 
     save_data(data)
@@ -1113,10 +1185,11 @@ if uploaded_json is not None:
                 and imported["plans"]
             ):
 
-                st.session_state.data = imported
+                st.session_state.data = normalize_data(imported)
+                st.session_state.data_load_failed = False
 
                 st.success(
-                    "Đã nhập dữ liệu thành công."
+                    "Đã nhập dữ liệu thành công và chuẩn hóa cấu trúc lịch trình."
                 )
 
                 st.rerun()
@@ -1176,6 +1249,10 @@ with tab_map:
         places
     )
 
+    st.divider()
+    st.subheader("📋 Lịch trình chi tiết từng điểm")
+    render_detailed_itinerary(plan, places)
+
 
 # ============================================================
 # TAB 2 - CHINH SUA LICH TRINH
@@ -1207,234 +1284,141 @@ with tab_itinerary:
 
 
     for day_index, day in enumerate(plan["days"]):
-
-        color = DAY_COLORS[
-            day_index % len(DAY_COLORS)
-        ]
-
-        with st.expander(
-            f"{day['name']} - {len(day['stops'])} điểm",
-            expanded=True
-        ):
-
+        color = DAY_COLORS[day_index % len(DAY_COLORS)]
+        with st.expander(f"{day['name']} - {len(day['stops'])} điểm", expanded=True):
             day["name"] = st.text_input(
-                "Tên ngày",
-                value=day["name"],
+                "Tên ngày", value=day["name"],
                 key=f"day_name_{plan['id']}_{day_index}"
             )
-
             st.markdown(
-                f'<span style="color:{color};font-weight:bold">'
-                f'● Màu tuyến đường của '
-                f'{html.escape(day["name"])}'
-                f'</span>',
+                f'<span style="color:{color};font-weight:bold">● Màu tuyến đường của '
+                f'{html.escape(day["name"])}</span>',
                 unsafe_allow_html=True
             )
 
-            # Them dia diem
-            available_places = [
-                p for p in places
-                if p["id"] not in day["stops"]
+            existing_ids = [
+                x.get("place_id") if isinstance(x, dict) else x
+                for x in day["stops"]
             ]
-
+            available_places = [p for p in places if p["id"] not in existing_ids]
             if available_places:
-
-                place_options = {
-                    p["id"]: (
-                        f"{p['name']} ({p['category']})"
-                    )
-                    for p in available_places
-                }
-
+                place_options = {p["id"]: f"{p['name']} ({p['category']})" for p in available_places}
                 selected_place = st.selectbox(
-                    "Chọn địa điểm để thêm",
-                    list(place_options.keys()),
+                    "Chọn địa điểm để thêm", list(place_options.keys()),
                     format_func=lambda x: place_options[x],
                     key=f"add_place_{plan['id']}_{day_index}"
                 )
-
-                if st.button(
-                    "➕ Thêm địa điểm vào ngày",
-                    key=f"add_stop_{plan['id']}_{day_index}"
-                ):
-
-                    day["stops"].append(selected_place)
+                if st.button("➕ Thêm địa điểm vào ngày", key=f"add_stop_{plan['id']}_{day_index}"):
+                    day["stops"].append({
+                        "place_id": selected_place,
+                        "arrival_time": "",
+                        "note": "",
+                        "images": []
+                    })
                     st.rerun()
-
             else:
-                st.info(
-                    "Không còn địa điểm mới trong thư viện."
-                )
+                st.info("Không còn địa điểm mới trong thư viện cho ngày này.")
 
             st.divider()
-
-            # Danh sach dia diem trong ngay
             if not day["stops"]:
+                st.info("Ngày này chưa có địa điểm.")
 
-                st.info(
-                    "Ngày này chưa có địa điểm."
-                )
+            for stop_index, stop in enumerate(day["stops"]):
+                if isinstance(stop, str):
+                    stop = normalize_stop(stop, {p["id"]: p for p in places})
+                    day["stops"][stop_index] = stop
+                place = get_place(stop.get("place_id")) if stop else None
+                if not place:
+                    continue
 
-            else:
-
-                for stop_index, place_id in enumerate(
-                    day["stops"]
-                ):
-
-                    place = get_place(place_id)
-
-                    if not place:
-                        continue
-
-                    col_name, col_up, col_down, col_move, col_remove = st.columns(
-                        [5, 0.6, 0.6, 1.2, 0.7]
-                    )
-
+                with st.container(border=True):
+                    col_name, col_up, col_down, col_move, col_remove = st.columns([5, 0.55, 0.55, 1.3, 0.65])
                     with col_name:
-
                         st.markdown(
-                            f'{stop_index + 1}. '
-                            f'{icon_html(place["category"], 17)} '
+                            f'{stop_index + 1}. {icon_html(place.get("category", "Khác"), 17)} '
                             f'**{html.escape(place["name"])}**',
                             unsafe_allow_html=True
                         )
-
                     with col_up:
-
-                        if st.button(
-                            "⬆️",
-                            key=f"up_{plan['id']}_{day_index}_{stop_index}",
-                            disabled=(stop_index == 0)
-                        ):
-
-                            day["stops"][stop_index - 1], day["stops"][stop_index] = (
-                                day["stops"][stop_index],
-                                day["stops"][stop_index - 1]
-                            )
-
+                        if st.button("⬆️", key=f"up_{plan['id']}_{day_index}_{stop_index}", disabled=stop_index == 0):
+                            day["stops"][stop_index - 1], day["stops"][stop_index] = day["stops"][stop_index], day["stops"][stop_index - 1]
                             st.rerun()
-
                     with col_down:
-
-                        if st.button(
-                            "⬇️",
-                            key=f"down_{plan['id']}_{day_index}_{stop_index}",
-                            disabled=(
-                                stop_index == len(day["stops"]) - 1
-                            )
-                        ):
-
-                            day["stops"][stop_index + 1], day["stops"][stop_index] = (
-                                day["stops"][stop_index],
-                                day["stops"][stop_index + 1]
-                            )
-
+                        if st.button("⬇️", key=f"down_{plan['id']}_{day_index}_{stop_index}", disabled=stop_index == len(day["stops"]) - 1):
+                            day["stops"][stop_index + 1], day["stops"][stop_index] = day["stops"][stop_index], day["stops"][stop_index + 1]
                             st.rerun()
-
                     with col_move:
-
-                        other_days = [
-                            i for i in range(len(plan["days"]))
-                            if i != day_index
-                        ]
-
+                        other_days = [i for i in range(len(plan["days"])) if i != day_index]
                         if other_days:
-
                             target_day = st.selectbox(
-                                "Chuyển đến",
-                                other_days,
+                                "Chuyển đến", other_days,
                                 format_func=lambda x: plan["days"][x]["name"],
                                 key=f"move_target_{plan['id']}_{day_index}_{stop_index}"
                             )
-
-                            if st.button(
-                                "Chuyển",
-                                key=f"move_{plan['id']}_{day_index}_{stop_index}"
-                            ):
-
-                                moved_id = day["stops"].pop(
-                                    stop_index
-                                )
-
-                                plan["days"][target_day]["stops"].append(
-                                    moved_id
-                                )
-
+                            if st.button("Chuyển", key=f"move_{plan['id']}_{day_index}_{stop_index}"):
+                                moved_stop = day["stops"].pop(stop_index)
+                                plan["days"][target_day]["stops"].append(moved_stop)
                                 st.rerun()
-
                     with col_remove:
-
-                        if st.button(
-                            "❌",
-                            key=f"remove_{plan['id']}_{day_index}_{stop_index}"
-                        ):
-
+                        if st.button("❌", key=f"remove_{plan['id']}_{day_index}_{stop_index}"):
                             day["stops"].pop(stop_index)
                             st.rerun()
 
+                    st_data = stop
+                    time_col, note_col = st.columns([1, 3])
+                    with time_col:
+                        st_data["arrival_time"] = st.text_input(
+                            "Thời gian đến (HH:MM)",
+                            value=st_data.get("arrival_time", ""),
+                            placeholder="Ví dụ: 09:30",
+                            key=f"arrival_{plan['id']}_{day_index}_{stop_index}"
+                        )
+                    with note_col:
+                        st_data["note"] = st.text_area(
+                            "Ghi chú cho điểm này",
+                            value=st_data.get("note", ""),
+                            height=85,
+                            key=f"stop_note_{plan['id']}_{day_index}_{stop_index}"
+                        )
 
-            # Ghi chu va anh cho dia diem
-            day_places = [
-                get_place(pid)
-                for pid in day["stops"]
-                if get_place(pid)
-            ]
-
-            if day_places:
-
-                st.divider()
-
-                note_place = st.selectbox(
-                    "Chọn địa điểm để thêm ghi chú / ảnh",
-                    [p["id"] for p in day_places],
-                    format_func=lambda x: get_place(x)["name"],
-                    key=f"note_place_{plan['id']}_{day_index}"
-                )
-
-                current_place = get_place(note_place)
-
-                note_value = st.text_area(
-                    "Ghi chú",
-                    value=current_place.get("note", ""),
-                    key=f"note_text_{plan['id']}_{day_index}"
-                )
-
-                uploaded_image = st.file_uploader(
-                    "Thêm ảnh cho địa điểm",
-                    type=["png", "jpg", "jpeg", "webp"],
-                    key=f"note_image_{plan['id']}_{day_index}"
-                )
-
-                if st.button(
-                    "Lưu ghi chú",
-                    key=f"save_note_{plan['id']}_{day_index}"
-                ):
-
-                    current_place["note"] = note_value
-
-                    if uploaded_image is not None:
-
-                        image_bytes = uploaded_image.getvalue()
-
-                        current_place["image"] = base64.b64encode(
-                            image_bytes
-                        ).decode("utf-8")
-
-                    st.success(
-                        "Đã cập nhật ghi chú."
+                    st.markdown("**Ảnh đính kèm**")
+                    current_images = st_data.setdefault("images", [])
+                    if current_images:
+                        image_cols = st.columns(min(4, len(current_images)))
+                        for image_index, image_data in enumerate(current_images):
+                            normalized = normalize_image(image_data)
+                            if not normalized:
+                                continue
+                            with image_cols[image_index % len(image_cols)]:
+                                try:
+                                    st.image(base64.b64decode(normalized["data"]), caption=normalized["name"], use_container_width=True)
+                                except Exception:
+                                    st.warning(f"Không đọc được ảnh: {normalized['name']}")
+                                if st.button("Xóa ảnh", key=f"delete_img_{plan['id']}_{day_index}_{stop_index}_{image_index}"):
+                                    current_images.pop(image_index)
+                                    st.rerun()
+                    uploaded_images = st.file_uploader(
+                        "Tải thêm một hoặc nhiều ảnh (không làm mất ảnh cũ)",
+                        type=["png", "jpg", "jpeg", "webp"],
+                        accept_multiple_files=True,
+                        key=f"stop_images_{plan['id']}_{day_index}_{stop_index}"
                     )
-
-                    st.rerun()
-
-                if current_place.get("image"):
-
-                    st.image(
-                        base64.b64decode(
-                            current_place["image"]
-                        ),
-                        caption=current_place["name"],
-                        width=300
-                    )
+                    if st.button("💾 Lưu thông tin điểm này", key=f"save_stop_{plan['id']}_{day_index}_{stop_index}"):
+                        if st_data.get("arrival_time"):
+                            import re
+                            if not re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", st_data["arrival_time"].strip()):
+                                st.error("Thời gian phải đúng định dạng HH:MM, ví dụ 09:30.")
+                                st.stop()
+                            st_data["arrival_time"] = st_data["arrival_time"].strip()
+                        for uploaded in uploaded_images or []:
+                            raw = uploaded.getvalue()
+                            st_data["images"].append({
+                                "name": uploaded.name,
+                                "mime_type": uploaded.type or "image/jpeg",
+                                "data": base64.b64encode(raw).decode("utf-8")
+                            })
+                        st.success("Đã cập nhật thông tin điểm đến.")
+                        st.rerun()
 
 
 # ============================================================
@@ -1620,7 +1604,7 @@ with tab_places:
 
                         d["stops"] = [
                             x for x in d["stops"]
-                            if x != delete_id
+                            if (x.get("place_id") if isinstance(x, dict) else x) != delete_id
                         ]
 
                 st.rerun()
@@ -1695,15 +1679,18 @@ with tab_export:
             route_data["stops"]
         ):
 
+            stop_data = place.get("_stop", {})
             excel_rows.append({
                 "Ngày": day["name"],
                 "Thứ tự": stop_index + 1,
+                "Thời gian đến": stop_data.get("arrival_time", ""),
                 "Địa điểm": place["name"],
                 "Phân loại": place["category"],
                 "Latitude": place["lat"],
                 "Longitude": place["lon"],
                 "Mô tả": place.get("description", ""),
-                "Ghi chú": place.get("note", "")
+                "Ghi chú": stop_data.get("note", ""),
+                "Số ảnh": len(stop_data.get("images", []))
             })
 
     excel_df = pd.DataFrame(excel_rows)
