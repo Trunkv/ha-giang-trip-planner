@@ -10,6 +10,7 @@ import html
 import uuid
 import os
 import io
+import hashlib
 
 from pathlib import Path
 from streamlit_folium import st_folium
@@ -27,6 +28,8 @@ st.set_page_config(
 )
 
 DATA_FILE = "ha_giang_data.json"
+SUPABASE_TABLE = "trip_planner_data"
+SUPABASE_RECORD_ID = "ha_giang_trip_planner"
 
 DAY_COLORS = [
     "#E53935",
@@ -421,30 +424,141 @@ def normalize_data(data):
     return data
 
 
-def load_data():
-    if not os.path.exists(DATA_FILE):
-        return initial_data()
+def get_supabase_config():
+    """Đọc thông tin kết nối từ Streamlit Community Cloud Secrets."""
     try:
-        with open(DATA_FILE, "r", encoding="utf-8") as f:
-            return normalize_data(json.load(f))
-    except Exception as exc:
-        # Khong ghi de file loi va khong im lang coi nhu du lieu mac dinh.
-        st.session_state.data_load_failed = True
+        secrets = st.secrets
+        supabase_url = str(secrets.get("SUPABASE_URL", "")).strip().rstrip("/")
+        # Nên dùng service_role key trong Secrets vì ứng dụng cần quyền đọc/ghi.
+        supabase_key = str(
+            secrets.get("SUPABASE_SERVICE_ROLE_KEY", "")
+            or secrets.get("SUPABASE_KEY", "")
+        ).strip()
+    except Exception:
+        supabase_url, supabase_key = "", ""
+
+    if not supabase_url or not supabase_key:
         st.error(
-            f"Không thể đọc {DATA_FILE}: {exc}. File gốc chưa bị ghi đè. "
-            "Bạn có thể thử nhập lại bản JSON sao lưu ở thanh bên."
+            "Chưa cấu hình Supabase. Trong Streamlit Community Cloud, mở "
+            "App → Settings → Secrets và khai báo SUPABASE_URL cùng "
+            "SUPABASE_SERVICE_ROLE_KEY. Xem hướng dẫn thiết lập đi kèm ứng dụng."
         )
-        return initial_data()
+        st.stop()
+
+    return supabase_url, supabase_key
+
+
+def supabase_request(method, params=None, payload=None):
+    """Gọi Supabase REST API; lỗi kết nối không được âm thầm thay bằng dữ liệu rỗng."""
+    supabase_url, supabase_key = get_supabase_config()
+    url = f"{supabase_url}/rest/v1/{SUPABASE_TABLE}"
+    headers = {
+        "apikey": supabase_key,
+        "Authorization": f"Bearer {supabase_key}",
+        "Content-Type": "application/json",
+        # Bắt buộc để POST + on_conflict thực hiện UPSERT thay vì INSERT trùng khóa.
+        "Prefer": "resolution=merge-duplicates,return=minimal",
+    }
+    try:
+        response = requests.request(
+            method,
+            url,
+            params=params,
+            json=payload,
+            headers=headers,
+            timeout=45,
+        )
+        response.raise_for_status()
+        return response
+    except requests.RequestException as exc:
+        detail = ""
+        if getattr(exc, "response", None) is not None:
+            detail = f" | Phản hồi: {exc.response.text[:1000]}"
+        raise RuntimeError(
+            "Không thể kết nối/lưu dữ liệu lên Supabase. "
+            "Dữ liệu trên màn hình chưa được xác nhận đã lưu. "
+            f"Chi tiết: {exc}{detail}"
+        ) from exc
+
+
+def data_fingerprint(data):
+    raw = json.dumps(data, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def find_legacy_data_file():
+    """Tìm bản JSON cũ để nạp lên Supabase trong lần chạy đầu tiên."""
+    candidates = [DATA_FILE, "ha_giang_data_3n2d.json"]
+    for filename in candidates:
+        if os.path.isfile(filename):
+            return filename
+    return None
+
+
+def load_data():
+    """Đọc dữ liệu từ Supabase; nếu DB chưa có bản ghi thì migrate JSON cũ."""
+    response = supabase_request(
+        "GET",
+        params={
+            "id": f"eq.{SUPABASE_RECORD_ID}",
+            "select": "data",
+            "limit": "1",
+        },
+    )
+    records = response.json() if response.content else []
+
+    if records:
+        if not isinstance(records[0].get("data"), dict):
+            raise RuntimeError("Bản ghi dữ liệu trong Supabase không đúng cấu trúc JSON.")
+        loaded = normalize_data(records[0]["data"])
+        st.session_state.last_saved_fingerprint = data_fingerprint(loaded)
+        return loaded
+
+    # Chưa có dữ liệu trên DB: ưu tiên migrate file đang dùng, sau đó file dữ liệu
+    # 3N2Đ/4N3Đ đi kèm. Không ghi đè dữ liệu DB nếu bản ghi đã tồn tại.
+    legacy_file = find_legacy_data_file()
+    if legacy_file:
+        try:
+            with open(legacy_file, "r", encoding="utf-8") as f:
+                loaded = normalize_data(json.load(f))
+        except Exception as exc:
+            raise RuntimeError(
+                f"Không thể đọc file dữ liệu cũ {legacy_file}: {exc}. "
+                "Không khởi tạo dữ liệu trắng để tránh mất dữ liệu."
+            ) from exc
+    else:
+        loaded = initial_data()
+
+    save_data(loaded)
+    return loaded
 
 
 def save_data(data):
-    """Ghi file tam truoc, sau do thay the de giam nguy co file JSON bi hong."""
-    temp_file = DATA_FILE + ".tmp"
-    with open(temp_file, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
-        f.flush()
-        os.fsync(f.fileno())
-    os.replace(temp_file, DATA_FILE)
+    """Lưu toàn bộ cấu trúc dữ liệu hiện tại vào một bản ghi JSONB trên Supabase."""
+    payload = [{"id": SUPABASE_RECORD_ID, "data": data}]
+    supabase_request(
+        "POST",
+        params={"on_conflict": "id"},
+        payload=payload,
+    )
+    st.session_state.last_saved_fingerprint = data_fingerprint(data)
+
+
+def save_if_changed(data):
+    """Tự động lưu khi dữ liệu thay đổi, tránh ghi DB ở mọi lần rerun không cần thiết."""
+    current_fingerprint = data_fingerprint(data)
+    if current_fingerprint != st.session_state.get("last_saved_fingerprint"):
+        save_data(data)
+
+
+def persist_and_rerun():
+    """Lưu trước khi rerun để không mất thay đổi từ các nút thao tác."""
+    try:
+        save_data(st.session_state.data)
+    except Exception as exc:
+        st.error(str(exc))
+        st.stop()
+    st.rerun()
 
 
 # ============================================================
@@ -654,53 +768,50 @@ def create_map(plan, places):
         p["id"]: p for p in places
     }
 
-    # Ve tuyen duong tung ngay
+    # Tinh tuyen tung ngay mot lan. Marker se duoc uu tien theo thu tu ngay:
+    # neu mot dia diem xuat hien o cuoi ngay truoc va dau ngay sau, thong tin
+    # marker cua lan xuat hien dau tien (ngay truoc) se duoc giu lai.
+    day_route_data = []
     for day_index, day in enumerate(plan["days"]):
+        route_data = calculate_day_routes(day, places)
+        day_route_data.append((day_index, day, route_data))
 
-        color = DAY_COLORS[
-            day_index % len(DAY_COLORS)
-        ]
+    # Ve tuyen theo thu tu nguoc de tuyen cua ngay som hon nam tren cung
+    # khi hai ngay co doan duong trung nhau. Mau tuyen moi ngay van doc lap.
+    for day_index, day, route_data in reversed(day_route_data):
+        color = DAY_COLORS[day_index % len(DAY_COLORS)]
 
-        route_data = calculate_day_routes(
-            day,
-            places
-        )
-
-        # Ve cac doan duong
         for segment in route_data["segments"]:
-
             folium.PolyLine(
                 locations=segment["coordinates"],
                 color=color,
                 weight=5,
                 opacity=0.88,
-                dash_array=(
-                    "8, 8"
-                    if segment["estimated"]
-                    else None
-                ),
+                dash_array=("8, 8" if segment["estimated"] else None),
                 tooltip=(
-                    f"{day['name']} | "
-                    f"{segment['distance_km']:.1f} km"
-                    + (
-                        " | Ước tính"
-                        if segment["estimated"]
-                        else ""
-                    )
+                    f"{day['name']} | {segment['distance_km']:.1f} km"
+                    + (" | Ước tính" if segment["estimated"] else "")
                 )
             ).add_to(m)
 
-        # Marker theo thu tu
-        for stop_index, place in enumerate(route_data["stops"]):
+    # Marker duoc ve theo thu tu ngay tang dan. Moi dia diem chi co mot
+    # marker; lan xuat hien dau tien duoc uu tien cho popup, thoi gian, ghi chu,
+    # anh va nhan Ngay/Điểm. Cac lan lap lai van giu nguyen tren tuyen duong.
+    marker_place_ids = set()
+    for day_index, day, route_data in day_route_data:
+        color = DAY_COLORS[day_index % len(DAY_COLORS)]
 
+        for stop_index, place in enumerate(route_data["stops"]):
             lat = place["lat"]
             lon = place["lon"]
-
             all_coords.append([lat, lon])
 
-            icon_name, icon_color = get_icon(
-                place.get("category", "Khác")
-            )
+            place_id = place.get("id")
+            if place_id in marker_place_ids:
+                continue
+            marker_place_ids.add(place_id)
+
+            icon_name, icon_color = get_icon(place.get("category", "Khác"))
 
             marker_html = f"""
             <div style="
@@ -775,26 +886,19 @@ def create_map(plan, places):
 
             marker = folium.Marker(
                 location=[lat, lon],
-
                 tooltip=folium.Tooltip(
                     html.escape(place["name"]),
                     permanent=True,
                     direction="top",
                     sticky=False
                 ),
-
-                popup=folium.Popup(
-                    popup_html,
-                    max_width=300
-                ),
-
+                popup=folium.Popup(popup_html, max_width=300),
                 icon=folium.DivIcon(
                     html=marker_html,
                     icon_size=(38, 38),
                     icon_anchor=(19, 19)
                 )
             )
-
             marker.add_to(m)
 
     # Tu dong zoom de hien thi cac diem trong lich trinh
@@ -990,7 +1094,15 @@ def render_share_view(data):
 
 if "data" not in st.session_state:
     st.session_state.data_load_failed = False
-    st.session_state.data = normalize_data(load_data())
+    try:
+        st.session_state.data = normalize_data(load_data())
+    except Exception as exc:
+        st.error(str(exc))
+        st.info(
+            "Ứng dụng đã dừng để bảo vệ dữ liệu. Hãy kiểm tra cấu hình Secrets, "
+            "bảng Supabase và file JSON dữ liệu cũ trước khi tải lại trang."
+        )
+        st.stop()
 
 data = st.session_state.data
 places = data["places"]
@@ -1072,7 +1184,7 @@ if st.sidebar.button(
     data["plans"].append(new_plan)
     data["selected_plan_id"] = new_plan["id"]
 
-    st.rerun()
+    persist_and_rerun()
 
 
 if st.sidebar.button(
@@ -1090,7 +1202,7 @@ if st.sidebar.button(
     data["plans"].append(copied)
     data["selected_plan_id"] = copied["id"]
 
-    st.rerun()
+    persist_and_rerun()
 
 
 edited_plan_name = st.sidebar.text_input(
@@ -1108,7 +1220,7 @@ if st.sidebar.button(
         or plan["name"]
     )
 
-    st.rerun()
+    persist_and_rerun()
 
 
 if len(data["plans"]) > 1:
@@ -1125,7 +1237,7 @@ if len(data["plans"]) > 1:
 
         data["selected_plan_id"] = data["plans"][0]["id"]
 
-        st.rerun()
+        persist_and_rerun()
 
 
 # ============================================================
@@ -1141,11 +1253,11 @@ if st.sidebar.button(
     disabled=st.session_state.get("data_load_failed", False)
 ):
 
-    save_data(data)
-
-    st.sidebar.success(
-        "Đã lưu dữ liệu."
-    )
+    try:
+        save_data(data)
+        st.sidebar.success("Đã lưu dữ liệu lên Supabase.")
+    except Exception as exc:
+        st.sidebar.error(str(exc))
 
 
 json_content = json.dumps(
@@ -1188,11 +1300,14 @@ if uploaded_json is not None:
                 st.session_state.data = normalize_data(imported)
                 st.session_state.data_load_failed = False
 
-                st.success(
-                    "Đã nhập dữ liệu thành công và chuẩn hóa cấu trúc lịch trình."
-                )
-
-                st.rerun()
+                try:
+                    save_data(st.session_state.data)
+                    st.success(
+                        "Đã nhập dữ liệu thành công, chuẩn hóa và lưu lên Supabase."
+                    )
+                    st.rerun()
+                except Exception as exc:
+                    st.error(str(exc))
 
             else:
                 st.sidebar.error(
@@ -1272,7 +1387,7 @@ with tab_itinerary:
                 "stops": []
             })
 
-            st.rerun()
+            persist_and_rerun()
 
     with col_del_day:
 
@@ -1280,7 +1395,7 @@ with tab_itinerary:
 
             if st.button("➖ Xóa ngày cuối"):
                 plan["days"].pop()
-                st.rerun()
+                persist_and_rerun()
 
 
     for day_index, day in enumerate(plan["days"]):
@@ -1315,7 +1430,7 @@ with tab_itinerary:
                         "note": "",
                         "images": []
                     })
-                    st.rerun()
+                    persist_and_rerun()
             else:
                 st.info("Không còn địa điểm mới trong thư viện cho ngày này.")
 
@@ -1342,11 +1457,11 @@ with tab_itinerary:
                     with col_up:
                         if st.button("⬆️", key=f"up_{plan['id']}_{day_index}_{stop_index}", disabled=stop_index == 0):
                             day["stops"][stop_index - 1], day["stops"][stop_index] = day["stops"][stop_index], day["stops"][stop_index - 1]
-                            st.rerun()
+                            persist_and_rerun()
                     with col_down:
                         if st.button("⬇️", key=f"down_{plan['id']}_{day_index}_{stop_index}", disabled=stop_index == len(day["stops"]) - 1):
                             day["stops"][stop_index + 1], day["stops"][stop_index] = day["stops"][stop_index], day["stops"][stop_index + 1]
-                            st.rerun()
+                            persist_and_rerun()
                     with col_move:
                         other_days = [i for i in range(len(plan["days"])) if i != day_index]
                         if other_days:
@@ -1358,11 +1473,11 @@ with tab_itinerary:
                             if st.button("Chuyển", key=f"move_{plan['id']}_{day_index}_{stop_index}"):
                                 moved_stop = day["stops"].pop(stop_index)
                                 plan["days"][target_day]["stops"].append(moved_stop)
-                                st.rerun()
+                                persist_and_rerun()
                     with col_remove:
                         if st.button("❌", key=f"remove_{plan['id']}_{day_index}_{stop_index}"):
                             day["stops"].pop(stop_index)
-                            st.rerun()
+                            persist_and_rerun()
 
                     st_data = stop
                     time_col, note_col = st.columns([1, 3])
@@ -1396,7 +1511,7 @@ with tab_itinerary:
                                     st.warning(f"Không đọc được ảnh: {normalized['name']}")
                                 if st.button("Xóa ảnh", key=f"delete_img_{plan['id']}_{day_index}_{stop_index}_{image_index}"):
                                     current_images.pop(image_index)
-                                    st.rerun()
+                                    persist_and_rerun()
                     uploaded_images = st.file_uploader(
                         "Tải thêm một hoặc nhiều ảnh (không làm mất ảnh cũ)",
                         type=["png", "jpg", "jpeg", "webp"],
@@ -1418,7 +1533,7 @@ with tab_itinerary:
                                 "data": base64.b64encode(raw).decode("utf-8")
                             })
                         st.success("Đã cập nhật thông tin điểm đến.")
-                        st.rerun()
+                        persist_and_rerun()
 
 
 # ============================================================
@@ -1492,7 +1607,7 @@ with tab_places:
                         "Đã thêm địa điểm."
                     )
 
-                    st.rerun()
+                    persist_and_rerun()
 
                 else:
                     st.error(
@@ -1571,7 +1686,7 @@ with tab_places:
                         "Đã cập nhật địa điểm."
                     )
 
-                    st.rerun()
+                    persist_and_rerun()
 
 
     # Xoa dia diem
@@ -1607,7 +1722,7 @@ with tab_places:
                             if (x.get("place_id") if isinstance(x, dict) else x) != delete_id
                         ]
 
-                st.rerun()
+                persist_and_rerun()
 
 
     # Danh sach dia diem
@@ -1758,3 +1873,10 @@ st.caption(
     "Routing by OSRM / OpenStreetMap. "
     "Khoảng cách và thời gian chỉ mang tính tham khảo."
 )
+
+# Tự động đồng bộ mọi thay đổi phát sinh từ widget (tên ngày, thời gian, ghi chú,...)
+# sau khi render xong. Các thao tác có st.rerun() đã lưu trước khi rerun.
+try:
+    save_if_changed(data)
+except Exception as exc:
+    st.error(str(exc))
